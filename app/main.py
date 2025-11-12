@@ -4,7 +4,7 @@ from fastapi import FastAPI, Request
 from dotenv import load_dotenv
 from openai import OpenAI
 import requests
-from supabase import create_client
+# from supabase import create_client
 
 load_dotenv()
 
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 # Initialize clients
 openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
-supabase = create_client(os.getenv('SUPABASE_URL'), os.getenv('SUPABASE_SERVICE_ROLE_KEY'))
+# supabase = create_client(os.getenv('SUPABASE_URL'), os.getenv('SUPABASE_SERVICE_ROLE_KEY'))
 
 app = FastAPI()
 

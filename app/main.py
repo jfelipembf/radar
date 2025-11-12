@@ -24,39 +24,52 @@ EVOLUTION_INSTANCE = os.getenv('EVOLUTION_INSTANCE')
 
 @app.post("/")
 async def webhook(request: Request):
-    data = await request.json()
-    logger.info(f"Received webhook: {data}")
+    try:
+        data = await request.json()
+        logger.info(f"Received webhook: {data}")
 
-    # Extract message details
-    key = data.get('key', {})
-    remote_jid = key.get('remoteJid')
-    from_me = key.get('fromMe', False)
-    message = data.get('message', {})
+        # Extract message details from the nested data
+        if 'data' not in data:
+            return {"status": "invalid_data"}
 
-    # Skip if message is from me to avoid loops
-    if from_me:
-        return {"status": "ignored"}
+        message_data = data['data']
 
-    # Extract text from message
-    text = ""
-    if 'extendedTextMessage' in message:
-        text = message['extendedTextMessage'].get('text', '')
-    elif 'conversation' in message:
-        text = message.get('conversation', '')
+        # Extract message details
+        key = message_data.get('key', {})
+        remote_jid = key.get('remoteJid')
+        from_me = key.get('fromMe', False)
+        message = message_data.get('message', {})
 
-    if not text:
-        return {"status": "no_text"}
+        # Skip if message is from me to avoid loops
+        if from_me:
+            return {"status": "ignored"}
 
-    # Get or create conversation history (simple, using remote_jid as user_id)
-    user_id = remote_jid.split('@')[0]  # Phone number
+        # Extract text from message
+        text = ""
+        if 'conversation' in message:
+            text = message.get('conversation', '')
+        elif 'extendedTextMessage' in message:
+            text = message['extendedTextMessage'].get('text', '')
 
-    # For simplicity, just generate response without history
-    response_text = await generate_ai_response(text)
+        if not text:
+            return {"status": "no_text"}
 
-    # Send response back
-    await send_whatsapp_message(user_id, response_text)
+        # Get user phone number
+        user_id = remote_jid.split('@')[0] if remote_jid else ""
 
-    return {"status": "processed"}
+        logger.info(f"Processing message from {user_id}: {text}")
+
+        # Generate AI response
+        response_text = await generate_ai_response(text)
+        logger.info(f"Generated response: {response_text}")
+
+        # Send response back
+        await send_whatsapp_message(user_id, response_text)
+
+        return {"status": "processed"}
+    except Exception as e:
+        logger.error(f"Error processing webhook: {e}")
+        return {"status": "error", "message": str(e)}
 
 async def generate_ai_response(message: str) -> str:
     try:
@@ -79,9 +92,10 @@ async def send_whatsapp_message(number: str, text: str):
         "number": number,
         "textMessage": {"text": text}
     }
+    logger.info(f"Sending message to {number}: {text}")
     try:
         response = requests.post(url, headers=headers, json=data)
-        logger.info(f"Sent message to {number}: {response.status_code}")
+        logger.info(f"Send response status: {response.status_code}, body: {response.text}")
     except Exception as e:
         logger.error(f"Error sending message: {e}")
 

@@ -22,7 +22,7 @@ EVOLUTION_URL = os.getenv('EVOLUTION_API_URL')
 EVOLUTION_KEY = os.getenv('EVOLUTION_API_KEY')
 EVOLUTION_INSTANCE = os.getenv('EVOLUTION_INSTANCE')
 
-@app.post("/webhook")
+@app.post("/")
 async def webhook(request: Request):
     data = await request.json()
     logger.info(f"Received webhook: {data}")

@@ -90,7 +90,7 @@ async def send_whatsapp_message(number: str, text: str):
     }
     data = {
         "number": number,
-        "textMessage": {"text": text},
+        "text": text,
         "instance": EVOLUTION_INSTANCE
     }
     logger.info(f"Sending message to {number}: {text}")

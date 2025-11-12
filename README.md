@@ -21,7 +21,7 @@ Para testar localmente, use ngrok para expor o servidor:
 
 3. Em outro terminal: `ngrok http 8000`
 
-4. Copie a URL do ngrok (ex: https://abcd.ngrok.io) e configure no webhook da Evolution API para `https://abcd.ngrok.io/webhook`
+4. Copie a URL do ngrok (ex: https://abcd.ngrok.io) e configure no webhook da Evolution API para essa URL (sem /webhook).
 
 5. Envie uma mensagem no WhatsApp e veja a resposta.
 

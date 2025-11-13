@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import os
-from typing import Optional
+from typing import List, Optional
 
 from openai import OpenAI
 
@@ -25,13 +25,24 @@ class OpenAIService:
             "Você é um assistente virtual útil e cordial.",
         )
 
-    async def generate_response(self, message: str, system_prompt: Optional[str] = None) -> str:
-        """Generate a response for the given user message."""
-        if not message:
-            raise ValueError("Mensagem vazia")
-
+    async def generate_response(
+        self,
+        message: Optional[str] = None,
+        history: Optional[List[dict]] = None,
+        system_prompt: Optional[str] = None,
+    ) -> str:
+        """Generate a response using single message or full history."""
         prompt = system_prompt or self._system_prompt
-        messages = [{"role": "system", "content": prompt}, {"role": "user", "content": message}]
+
+        if history:
+            messages = [{"role": "system", "content": prompt}] + history
+        elif message:
+            messages = [
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": message},
+            ]
+        else:
+            raise ValueError("É necessário fornecer message ou history")
 
         try:
             response = await asyncio.to_thread(

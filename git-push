@@ -1,0 +1,17 @@
+#!/bin/bash
+
+# Comando rápido para commit e push
+# Uso: ./git-push "mensagem" ou ./git-push (usa mensagem automática)
+
+if [ $# -eq 0 ]; then
+    # Mensagem automática baseada na data
+    COMMIT_MESSAGE="update: $(date '+%Y-%m-%d %H:%M') - Melhorias no sistema"
+else
+    COMMIT_MESSAGE="$1"
+fi
+
+echo "🚀 Commit e push: $COMMIT_MESSAGE"
+
+git add . && git commit -m "$COMMIT_MESSAGE" && git push origin HEAD
+
+echo "✅ Concluído!"

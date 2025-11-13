@@ -79,18 +79,79 @@ curl -X POST http://localhost:8000/ \
   -d '{"event":"messages.upsert","data":{"key":{"remoteJid":"5511999999999@s.whatsapp.net","fromMe":false},"message":{"conversation":"Preciso de óleo para meu carro"}}}'
 ```
 
+## 💾 Comandos de Git
+
+### Comando Completo (Recomendado)
+```bash
+./git_commit_push.sh "feat: Implementar nova funcionalidade X"
+```
+
+### Comando Rápido
+```bash
+./git-push "update: Correções menores"
+# ou apenas:
+./git-push  # usa mensagem automática com data
+```
+
+### Comandos Individuais
+```bash
+git add .
+git commit -m "sua mensagem"
+git push origin HEAD
+```
+
+## 🧪 Scripts de Teste
+
+### Teste dos Módulos
+```bash
+python3 test_modules.py
+```
+
+### Teste de Detecção de Produtos
+```bash
+python3 test_product_detection.py
+```
+
+### Teste do Fluxo Completo
+```bash
+python3 test_message_flow.py
+```
+
 ## 📁 Estrutura do Projeto
 
 ```
 ├── app/
-│   ├── main.py              # Aplicação principal
-│   └── config/
-│       └── radar_config.py  # Configurações do RADAR
-├── RADAR_PROMPT.md          # Prompt detalhado do sistema
-├── RADAR_EXEMPLOS.md        # Exemplos de uso
-├── requirements.txt         # Dependências
-├── Dockerfile              # Container
-└── README.md              # Esta documentação
+│   ├── main.py                 # Servidor FastAPI principal (80 linhas)
+│   ├── modules/               # 🆕 Módulos especializados
+│   │   ├── whatsapp/          # Integração Evolution API
+│   │   │   ├── whatsapp_types.py      # Constantes WhatsApp
+│   │   │   ├── whatsapp_domain.py     # Regras de negócio
+│   │   │   ├── whatsapp_functions.py  # Envio de mensagens
+│   │   │   └── whatsapp_db.py         # DB operations
+│   │   ├── message_processor/ # Processamento de mensagens
+│   │   │   ├── message_processor_types.py     # Configurações
+│   │   │   ├── message_processor_domain.py    # Estratégias
+│   │   │   ├── message_processor_functions.py # Processamento async
+│   │   │   └── message_processor_db.py        # DB operations
+│   │   ├── ai_service/        # Serviço OpenAI
+│   │   │   ├── ai_service_types.py       # Configurações IA
+│   │   │   ├── ai_service_domain.py      # Detecção produtos
+│   │   │   ├── ai_service_functions.py   # Geração respostas
+│   │   │   └── ai_service_db.py          # DB operations
+│   │   └── product_radar/     # Sistema RADAR
+│   │       ├── product_radar_types.py    # Configurações radar
+│   │       ├── product_radar_domain.py   # Validações produtos
+│   │       ├── product_radar_functions.py # Comparação preços
+│   │       └── product_radar_db.py       # Queries Supabase
+│   └── services/              # Serviços externos
+│       └── conversation_manager.py  # Gerenciamento contexto
+├── test_*.py                  # Scripts de teste
+├── git_commit_push.sh         # Script completo de commit
+├── git-push                   # Comando rápido de commit
+├── requirements.txt           # Dependências Python
+├── Dockerfile                # Container Docker
+├── README.md                 # Esta documentação
+└── .env                      # Variáveis ambiente (não versionado)
 ```
 
 ## 🎯 Exemplos de Uso

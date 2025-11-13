@@ -85,11 +85,15 @@ class SupabaseService:
             response.raise_for_status()
         return response.json()
 
-    def delete_temp_messages(self, user_id: str) -> None:
-        """Remove mensagens temporárias do usuário."""
-        params = {"user_id": f"eq.{user_id}"}
+    def delete_temp_messages(self, message_ids: List[str]) -> None:
+        """Remove mensagens temporárias processadas."""
+        if not message_ids:
+            return
+
+        ids_clause = ",".join({mid for mid in message_ids})
+        params = {"id": f"in.({ids_clause})"}
         url = f"{self._rest_base}/{self._temp_table}"
-        logger.debug("Supabase → removendo temporários de %s", user_id)
+        logger.debug("Supabase → removendo temporários: %s", message_ids)
         response = requests.delete(url, headers=self._headers, params=params, timeout=10)
         if not response.ok:
             logger.error("Supabase → erro ao remover temporários: %s", response.text)

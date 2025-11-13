@@ -2,7 +2,7 @@ import os
 import logging
 import asyncio
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, Request
 from dotenv import load_dotenv
@@ -32,7 +32,10 @@ except ValueError:
 app = FastAPI()
 
 DEBOUNCE_SECONDS = int(os.getenv("DEBOUNCE_SECONDS", "15"))
-pending_tasks: Dict[str, asyncio.Task] = {}
+HISTORY_LIMIT = int(os.getenv("HISTORY_LIMIT", "40"))
+
+pending_tasks: Dict[str, Dict[str, Any]] = {}
+_generation_counter: Dict[str, int] = {}
 
 @app.post("/")
 async def webhook(request: Request):
@@ -135,27 +138,37 @@ async def record_temp_message(user_id: str, content: str, role: str, message_id:
 
 
 async def schedule_user_processing(user_id: str) -> None:
+    generation = _generation_counter.get(user_id, 0) + 1
+    _generation_counter[user_id] = generation
+
     existing = pending_tasks.get(user_id)
-    if existing and not existing.done():
-        existing.cancel()
+    if existing:
+        existing_task = existing.get("task")
+        if existing_task and not existing_task.done():
+            existing_task.cancel()
 
-    task = asyncio.create_task(_debounce_runner(user_id))
-    pending_tasks[user_id] = task
+    task = asyncio.create_task(_debounce_runner(user_id, generation))
+    pending_tasks[user_id] = {"task": task, "generation": generation}
 
 
-async def _debounce_runner(user_id: str) -> None:
+async def _debounce_runner(user_id: str, generation: int) -> None:
     try:
         await asyncio.sleep(DEBOUNCE_SECONDS)
-        await process_debounced_messages(user_id)
+        current = pending_tasks.get(user_id)
+        if not current or current.get("generation") != generation:
+            return
+        await process_debounced_messages(user_id, generation)
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # noqa: BLE001
         logger.error("Erro ao processar debounce de %s: %s", user_id, exc)
     finally:
-        pending_tasks.pop(user_id, None)
+        current = pending_tasks.get(user_id)
+        if current and current.get("generation") == generation:
+            pending_tasks.pop(user_id, None)
 
 
-async def process_debounced_messages(user_id: str) -> None:
+async def process_debounced_messages(user_id: str, generation: int) -> None:
     if not supabase_service:
         return
 
@@ -164,7 +177,11 @@ async def process_debounced_messages(user_id: str) -> None:
         return
 
     history: List[Dict[str, str]] = []
-    recent_messages = await asyncio.to_thread(supabase_service.get_recent_messages, user_id, 20)
+    recent_messages = await asyncio.to_thread(
+        supabase_service.get_recent_messages,
+        user_id,
+        HISTORY_LIMIT,
+    )
 
     for msg in sorted(recent_messages, key=_sort_key):
         if msg.get("content"):
@@ -184,7 +201,11 @@ async def process_debounced_messages(user_id: str) -> None:
     logger.info("Generated response after debounce for %s: %s", user_id, response_text)
 
     # Persist mensagens temporárias como histórico definitivo
+    temp_ids: List[str] = []
     for temp in temp_messages:
+        temp_id = temp.get("id")
+        if temp_id:
+            temp_ids.append(str(temp_id))
         await log_message(
             user_id=user_id,
             content=temp.get("content", ""),
@@ -194,7 +215,7 @@ async def process_debounced_messages(user_id: str) -> None:
 
     await log_message(user_id, response_text, role="assistant")
 
-    await asyncio.to_thread(supabase_service.delete_temp_messages, user_id)
+    await asyncio.to_thread(supabase_service.delete_temp_messages, temp_ids)
     await send_whatsapp_message(user_id, response_text)
 
 

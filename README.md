@@ -1,52 +1,204 @@
-# WhatsApp AI Automation
+# 🤖 WhatsApp AI Automation - Sistema RADAR
 
-Este projeto configura uma automação para WhatsApp usando Evolution API e OpenAI.
+Este projeto configura uma automação para WhatsApp usando **Evolution API** e **OpenAI**, com o sistema **RADAR** especializado em orçamentos e comparações de preços.
 
-## Instalação
+## 🎯 O que é o RADAR?
 
-1. Instale as dependências:
-   ```bash
-   pip install -r requirements.txt
-   ```
+O **RADAR** é um sistema de inteligência artificial avançado que ajuda usuários a encontrarem os melhores preços e ofertas através de:
 
-2. Certifique-se de que o arquivo `.env` está configurado com suas chaves.
+- ✅ **Análise inteligente** de produtos em múltiplas lojas
+- ✅ **Comparação automática** de preços e condições
+- ✅ **Recomendações personalizadas** baseadas em localização
+- ✅ **Sugestões econômicas** e oportunidades de economia
 
-## Teste
+## 🏪 Segmentos Suportados
 
-Para testar localmente, use ngrok para expor o servidor:
+- 🛒 **Supermercados**: Alimentos, bebidas, limpeza
+- 🛍️ **Vestuário**: Roupas, calçados, acessórios
+- 🏠 **Casa & Construção**: Materiais, ferramentas, decoração
+- 💻 **Eletrônicos**: Celulares, TVs, computadores
+- 🚗 **Auto Peças**: Peças, acessórios, manutenção
+- 🏥 **Farmácias**: Medicamentos, higiene, beleza
+- 🎯 **Outros**: Livros, brinquedos, esportes, etc.
 
-1. Instale ngrok: `brew install ngrok` (no macOS)
+## 📋 Como Funciona
 
-2. Execute o servidor: `python app/main.py`
+### 1. **Recebimento de Mensagens**
+- O Evolution API recebe mensagens do WhatsApp
+- Sistema extrai o texto e identifica a intenção
 
-3. Em outro terminal: `ngrok http 8000`
+### 2. **Processamento com RADAR**
+- IA analisa a solicitação usando prompt especializado
+- Busca informações em múltiplas fontes de dados
+- Compara preços e condições
 
-4. Copie a URL do ngrok (ex: https://abcd.ngrok.io) e configure no webhook da Evolution API para essa URL (sem /webhook).
+### 3. **Resposta Inteligente**
+- Apresenta melhor opção encontrada
+- Mostra comparação detalhada
+- Fornece dicas práticas de economia
 
-5. Envie uma mensagem no WhatsApp e veja a resposta.
+## 🚀 Instalação e Configuração
 
-## Deploy no Easypanel
+### Pré-requisitos
+- Python 3.8+
+- Conta Evolution API
+- Chave OpenAI API
 
-1. Faça upload do código para um repositório Git (GitHub, GitLab, etc.).
+### 1. Instale as dependências:
+```bash
+pip install -r requirements.txt
+```
 
-2. No painel do Easypanel, crie um novo projeto.
+### 2. Configure o arquivo `.env`:
+```env
+OPENAI_API_KEY=sua-chave-aqui
+OPENAI_MODEL=gpt-4o-mini
+EVOLUTION_API_URL=https://sua-api.evolution.com
+EVOLUTION_API_KEY=sua-chave-api
+EVOLUTION_INSTANCE=seu-instance
+LOG_LEVEL=INFO
+```
 
-3. Selecione "Deploy from Git" e conecte seu repositório.
+### 3. Execute o servidor:
+```bash
+python app/main.py
+```
 
-4. Configure as variáveis de ambiente (OPENAI_API_KEY, etc.) no painel do Easypanel.
+## 🧪 Teste Local
 
-5. O Dockerfile será usado automaticamente para build e deploy.
+### Usando ngrok:
+1. Instale ngrok: `brew install ngrok` (macOS)
+2. Execute: `python app/main.py`
+3. Novo terminal: `ngrok http 8000`
+4. Configure webhook no Evolution API
 
-6. Após o deploy, copie a URL gerada e configure no webhook da Evolution API.
+### Teste direto:
+```bash
+curl -X POST http://localhost:8000/ \
+  -H "Content-Type: application/json" \
+  -d '{"event":"messages.upsert","data":{"key":{"remoteJid":"5511999999999@s.whatsapp.net","fromMe":false},"message":{"conversation":"Preciso de óleo para meu carro"}}}'
+```
 
-## Funcionamento
+## 📁 Estrutura do Projeto
 
-- Quando uma mensagem é recebida no WhatsApp, o Evolution API envia um webhook para o seu servidor.
-- O servidor extrai o texto da mensagem e envia para a OpenAI para gerar uma resposta.
-- A resposta é enviada de volta via WhatsApp usando a Evolution API.
+```
+├── app/
+│   ├── main.py              # Aplicação principal
+│   └── config/
+│       └── radar_config.py  # Configurações do RADAR
+├── RADAR_PROMPT.md          # Prompt detalhado do sistema
+├── RADAR_EXEMPLOS.md        # Exemplos de uso
+├── requirements.txt         # Dependências
+├── Dockerfile              # Container
+└── README.md              # Esta documentação
+```
 
-## Próximos Passos
+## 🎯 Exemplos de Uso
 
-- Adicionar armazenamento de histórico de conversas no Supabase.
-- Melhorar o tratamento de mensagens (mídia, etc.).
-- Adicionar autenticação e validação.
+### Peças Automotivas:
+**Usuário:** "Óleo de motor 5W30 para Toyota Corolla"
+
+**RADAR responde:**
+```
+🎯 **ÓLEO DE MOTOR 5W30 - TOYOTA COROLLA**
+
+💰 **MELHOR OPÇÃO: Auto Peças Central**
+📍 Rua das Flores, 123 - Centro
+💵 Preço: R$ 45,90 (1L)
+📊 Economia: 15% mais barato
+
+🔍 **COMPARAÇÃO:** Mecânica do Zé R$ 52,00
+💡 **DICA:** Verifique se é óleo sintético
+```
+
+### Supermercados:
+**Usuário:** "Leite integral mais barato"
+
+**RADAR responde:**
+```
+🎯 **LEITE INTEGRAL (1L)**
+
+💰 **MELHOR OPÇÃO: Super Econômico**
+📍 Av. Brasil, 456
+💵 Preço: R$ 4,89
+📊 R$ 0,61 mais barato
+
+💡 **DICA:** Compre em caixas de 6 unidades
+```
+
+## 🏗️ Deploy no Easypanel
+
+1. Faça upload para repositório Git
+2. No Easypanel: "Deploy from Git"
+3. Configure variáveis de ambiente
+4. Deploy automático com Dockerfile
+5. Configure webhook no Evolution API
+
+## ⚙️ Configurações do RADAR
+
+O sistema usa configurações específicas em `app/config/radar_config.py`:
+
+- **Modelo:** gpt-4o-mini (otimizado para custo)
+- **Temperatura:** 0.7 (balanceado)
+- **Tokens:** 2000 (respostas completas)
+- **Segmentos:** 7 categorias principais
+
+## 🔧 Personalização
+
+### Modificar Prompt:
+Edite `RADAR_PROMPT.md` e `app/config/radar_config.py`
+
+### Adicionar Segmentos:
+Atualize a lista de segmentos suportados na configuração
+
+### Ajustar Comportamento:
+Modifique parâmetros de temperatura e tokens conforme necessário
+
+## 📊 Monitoramento
+
+### Logs Disponíveis:
+- Processamento de mensagens
+- Respostas da OpenAI
+- Status de envio WhatsApp
+- Erros e exceções
+
+### Verificação de Saúde:
+```bash
+curl https://sua-url/health  # Se implementado
+```
+
+## 🚨 Troubleshooting
+
+### Problema: Mensagens não chegam
+- ✅ Verifique webhook URL no Evolution API
+- ✅ Confirme chaves de API válidas
+- ✅ Verifique logs da aplicação
+
+### Problema: Respostas incorretas
+- ✅ Verifique prompt do RADAR
+- ✅ Teste mensagens específicas
+- ✅ Ajuste temperatura do modelo
+
+### Problema: Timeout
+- ✅ Aumente timeout da API
+- ✅ Otimize prompt do sistema
+- ✅ Considere modelo mais rápido
+
+## 🎯 Roadmap
+
+- [ ] Integração com bancos de dados de preços reais
+- [ ] Suporte a localização GPS do usuário
+- [ ] Histórico de conversas
+- [ ] Notificações de ofertas
+- [ ] API para integração com outras plataformas
+
+---
+
+## 🤝 Suporte
+
+Para dúvidas sobre o sistema RADAR:
+- 📖 Consulte `RADAR_PROMPT.md`
+- 🧪 Teste com `RADAR_EXEMPLOS.md`
+- 📝 Verifique logs da aplicação
+
+**"RADAR: Encontre o melhor preço, economize com inteligência!"** 🛒💰

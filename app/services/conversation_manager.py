@@ -120,16 +120,25 @@ class ConversationManager:
         # Criar novo timer
         async def debounce_callback():
             try:
+                logger.info(f"Aguardando {self.debounce_delay} segundos para {user_id}...")
                 await asyncio.sleep(self.debounce_delay)
                 logger.info(f"Debounce concluído para {user_id}, executando callback")
-                await callback_func()
+
+                # Verificar se ainda é relevante (não foi cancelado por nova mensagem)
+                if user_id in self.active_conversations:
+                    await callback_func()
+                else:
+                    logger.info(f"Callback ignorado para {user_id} - conversa removida")
+
             except asyncio.CancelledError:
                 logger.info(f"Debounce cancelado para {user_id}")
                 raise
+            except Exception as e:
+                logger.error(f"Erro no callback de debounce para {user_id}: {e}")
 
         task = asyncio.create_task(debounce_callback())
         self.active_conversations[user_id].debounce_task = task
-        logger.info(f"Novo timer de debounce iniciado para {user_id}")
+        logger.info(f"Novo timer de debounce iniciado para {user_id} ({self.debounce_delay}s)")
 
     async def process_incoming_message(self, user_id: str, message_text: str) -> Tuple[bool, List[MessageContext]]:
         """

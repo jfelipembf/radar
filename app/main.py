@@ -1,10 +1,15 @@
 import os
 import logging
+from datetime import datetime, timezone
+from typing import Optional
+
 from fastapi import FastAPI, Request
 from dotenv import load_dotenv
-from openai import OpenAI
-import requests
-# from supabase import create_client
+
+from app.services.openai_service import OpenAIService
+from app.services.evolution_service import EvolutionService
+from app.services.supabase_service import SupabaseService
+
 
 load_dotenv()
 
@@ -12,15 +17,18 @@ load_dotenv()
 logging.basicConfig(level=os.getenv('LOG_LEVEL', 'INFO').upper())
 logger = logging.getLogger(__name__)
 
-# Initialize clients
-openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
-# supabase = create_client(os.getenv('SUPABASE_URL'), os.getenv('SUPABASE_SERVICE_ROLE_KEY'))
+# Initialize services
+openai_service = OpenAIService()
+evolution_service = EvolutionService()
+
+try:
+    supabase_service: Optional[SupabaseService] = SupabaseService()
+    logger.info("Supabase service iniciado")
+except ValueError:
+    supabase_service = None
+    logger.warning("Supabase não configurado; mensagens não serão persistidas")
 
 app = FastAPI()
-
-EVOLUTION_URL = os.getenv('EVOLUTION_API_URL')
-EVOLUTION_KEY = os.getenv('EVOLUTION_API_KEY')
-EVOLUTION_INSTANCE = os.getenv('EVOLUTION_INSTANCE')
 
 @app.post("/")
 async def webhook(request: Request):
@@ -59,45 +67,47 @@ async def webhook(request: Request):
 
         logger.info(f"Processing message from {user_id}: {text}")
 
+        # Persist incoming message
+        await log_message(user_id, text, role="user")
+
         # Generate AI response
-        response_text = await generate_ai_response(text)
+        response_text = await openai_service.generate_response(text)
         logger.info(f"Generated response: {response_text}")
 
         # Send response back
         await send_whatsapp_message(user_id, response_text)
+
+        # Persist outgoing message
+        await log_message(user_id, response_text, role="assistant")
 
         return {"status": "processed"}
     except Exception as e:
         logger.error(f"Error processing webhook: {e}")
         return {"status": "error", "message": str(e)}
 
-async def generate_ai_response(message: str) -> str:
-    try:
-        response = openai_client.chat.completions.create(
-            model=os.getenv('OPENAI_MODEL'),
-            messages=[{"role": "user", "content": message}]
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        logger.error(f"OpenAI error: {e}")
-        return "Desculpe, houve um erro ao processar sua mensagem."
-
 async def send_whatsapp_message(number: str, text: str):
-    url = f"{EVOLUTION_URL}message/sendText/{EVOLUTION_INSTANCE}"
-    headers = {
-        'Content-Type': 'application/json',
-        'apikey': EVOLUTION_KEY
-    }
-    data = {
-        "number": number,
-        "text": text
-    }
-    logger.info(f"Sending message to {number}: {text}")
     try:
-        response = requests.post(url, headers=headers, json=data)
-        logger.info(f"Send response status: {response.status_code}, body: {response.text}")
+        evolution_service.send_message(number, text)
     except Exception as e:
         logger.error(f"Error sending message: {e}")
+
+
+async def log_message(user_id: str, content: str, role: str) -> None:
+    """Persist message in Supabase if service is available."""
+    if not supabase_service:
+        return
+
+    try:
+        supabase_service.save_message(
+            {
+                "user_id": user_id,
+                "role": role,
+                "content": content,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+    except Exception as exc:
+        logger.error("Erro ao salvar mensagem no Supabase: %s", exc)
 
 if __name__ == "__main__":
     import uvicorn

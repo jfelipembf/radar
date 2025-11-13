@@ -1,5 +1,6 @@
 import os
 import logging
+import asyncio
 from fastapi import FastAPI, Request
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -41,6 +42,14 @@ except ImportError:
     radar_search = None
     logger.warning("Radar product search not available")
 
+# Import Conversation Manager
+try:
+    from app.services.conversation_manager import conversation_manager
+    logger.info("Conversation manager loaded successfully")
+except ImportError:
+    conversation_manager = None
+    logger.warning("Conversation manager not available")
+
 @app.post("/")
 async def webhook(request: Request):
     try:
@@ -78,17 +87,104 @@ async def webhook(request: Request):
 
         logger.info(f"Processing message from {user_id}: {text}")
 
-        # Generate AI response
-        response_text = await generate_ai_response(text)
-        logger.info(f"Generated response: {response_text}")
+        # Process incoming message with conversation manager
+        if conversation_manager:
+            is_first_today, context_messages = await conversation_manager.process_incoming_message(user_id, text)
 
-        # Send response back
-        await send_whatsapp_message(user_id, response_text)
+            # Se for primeira mensagem do dia, enviar mensagem de boas-vindas
+            if is_first_today:
+                welcome_message = "🤖 *RADAR ATIVADO*\n\nOlá! Sou seu assistente inteligente de compras automotivas. Posso ajudar você a encontrar os melhores preços de peças e acessórios.\n\n💡 *Como funciona:*\n• Digite o nome da peça que procura\n• Compare preços automaticamente\n• Encontre as melhores ofertas\n\nVamos começar? O que você está procurando hoje?"
+                await send_whatsapp_message(user_id, welcome_message)
+                logger.info(f"Primeira mensagem do dia enviada para {user_id}")
 
-        return {"status": "processed"}
+            # Iniciar/cancelar timer de debounce
+            await conversation_manager.start_debounce_timer(user_id, lambda: process_message_with_context(user_id, context_messages))
+            return {"status": "debouncing"}
+
+        else:
+            # Fallback se conversation manager não estiver disponível
+            response_text = await generate_ai_response(text)
+            await send_whatsapp_message(user_id, response_text)
+            return {"status": "processed"}
+
     except Exception as e:
         logger.error(f"Error processing webhook: {e}")
         return {"status": "error", "message": str(e)}
+
+async def process_message_with_context(user_id: str, context_messages: list):
+    """
+    Processa mensagem após debounce, usando contexto de conversa
+    """
+    try:
+        logger.info(f"Processando mensagem com contexto para {user_id}")
+
+        # Obter contexto mais recente
+        current_context = await conversation_manager.get_conversation_context(user_id, limit=10)
+
+        # Gerar resposta com contexto
+        response_text = await generate_ai_response_with_context("", current_context)
+
+        # Salvar resposta no contexto
+        await conversation_manager.process_outgoing_message(user_id, response_text)
+
+        # Enviar resposta
+        await send_whatsapp_message(user_id, response_text)
+        logger.info(f"Resposta enviada para {user_id} após debounce")
+
+    except Exception as e:
+        logger.error(f"Erro no processamento com contexto: {e}")
+        error_msg = "Desculpe, houve um erro ao processar sua mensagem. Tente novamente."
+        await send_whatsapp_message(user_id, error_msg)
+
+async def generate_ai_response_with_context(message: str, context_messages: list) -> str:
+    """
+    Gera resposta da IA usando contexto completo da conversa
+    """
+    try:
+        # Pegar a última mensagem do usuário do contexto
+        user_messages = [msg for msg in context_messages if msg.role == 'user']
+        if user_messages:
+            latest_message = user_messages[-1].content
+        else:
+            latest_message = message
+
+        # Verificar se é uma consulta de produto para o RADAR
+        product_query = await detect_product_query(latest_message)
+
+        if product_query and radar_search:
+            # Buscar produto no RADAR
+            logger.info(f"Product query detected with context: {product_query}")
+            product_result = radar_search.comparar_precos(product_query)
+
+            if "erro" not in product_result:
+                # Formatar resposta com dados do produto
+                response = format_product_response(product_result)
+                return response
+
+        # Preparar mensagens para OpenAI com contexto
+        messages_for_ai = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+        # Adicionar contexto da conversa (últimas mensagens)
+        for ctx_msg in context_messages[-8:]:  # Últimas 8 mensagens para não exceder limite
+            messages_for_ai.append({
+                "role": ctx_msg.role,
+                "content": ctx_msg.content
+            })
+
+        # Adicionar mensagem atual se não estiver no contexto
+        if latest_message and not any(msg['content'] == latest_message for msg in messages_for_ai):
+            messages_for_ai.append({"role": "user", "content": latest_message})
+
+        # Gerar resposta com contexto
+        response = openai_client.chat.completions.create(
+            model=os.getenv('OPENAI_MODEL', 'gpt-4o-mini'),
+            messages=messages_for_ai
+        )
+        return response.choices[0].message.content.strip()
+
+    except Exception as e:
+        logger.error(f"OpenAI error with context: {e}")
+        return "Desculpe, houve um erro ao processar sua mensagem com contexto."
 
 async def generate_ai_response(message: str) -> str:
     try:
@@ -105,7 +201,7 @@ async def generate_ai_response(message: str) -> str:
                 response = format_product_response(product_result)
                 return response
 
-        # Resposta normal da IA
+        # Resposta normal da IA (sem contexto)
         response = openai_client.chat.completions.create(
             model=os.getenv('OPENAI_MODEL', 'gpt-4o-mini'),
             messages=[

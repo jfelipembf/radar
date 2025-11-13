@@ -63,10 +63,12 @@ class ConversationManager:
             "Content-Type": "application/json"
         }
 
+        logger.debug("Chamando RPC Supabase: %s payload=%s", function_name, payload)
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 response = await client.post(url, json=payload, headers=headers)
                 response.raise_for_status()
+                logger.debug("Resposta RPC %s: status=%s body=%s", function_name, response.status_code, response.text)
                 return response.json()
         except httpx.HTTPStatusError as exc:
             logger.error("Erro HTTP ao chamar RPC %s: %s - %s", function_name, exc.response.status_code, exc.response.text)
@@ -107,7 +109,7 @@ class ConversationManager:
         if result is None:
             logger.warning("Mensagem não salva em Supabase para %s (%s)", user_id, role)
         else:
-            logger.info("Mensagem salva em Supabase: %s - %s", user_id, role)
+            logger.info("Mensagem salva em Supabase: %s - %s (id=%s)", user_id, role, result)
 
     async def get_conversation_context(self, user_id: str, limit: int = 10) -> List[MessageContext]:
         """
@@ -138,6 +140,7 @@ class ConversationManager:
                 created_at=created_at or datetime.now()
             ))
 
+        logger.info("Contexto recuperado para %s: %s mensagens", user_id, len(messages))
         messages.reverse()
         return messages
 

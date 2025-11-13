@@ -82,6 +82,8 @@ async def webhook(request: Request):
             await send_whatsapp_message(user_id, response_text)
             return {"status": "processed"}
 
+        await maybe_send_daily_greeting(user_id)
+
         created_at = _extract_created_at(message_data)
         message_id = key.get('id') or message_data.get('id') or ""
 
@@ -229,6 +231,35 @@ async def process_debounced_messages(user_id: str) -> None:
     await set_presence(user_id, "paused")
 
 
+async def maybe_send_daily_greeting(user_id: str) -> None:
+    if not supabase_service or not user_id:
+        return
+
+    try:
+        latest_message = await asyncio.to_thread(supabase_service.get_latest_message, user_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Erro ao verificar primeira mensagem do dia para %s: %s", user_id, exc)
+        return
+
+    now_utc = datetime.now(timezone.utc)
+
+    should_send = False
+    if not latest_message:
+        should_send = True
+    else:
+        last_created_at = latest_message.get("created_at")
+        last_dt = _parse_created_at(last_created_at)
+        if not last_dt or last_dt.date() != now_utc.date():
+            should_send = True
+
+    if not should_send:
+        return
+
+    greeting = "Radar ativado 🚨"
+    await log_message(user_id, greeting, role="assistant")
+    await send_whatsapp_message(user_id, greeting)
+
+
 def _extract_created_at(message_data: dict) -> str:
     timestamp = message_data.get('messageTimestamp') or message_data.get('timestamp')
     if timestamp:
@@ -262,6 +293,25 @@ def _consolidate_temp_messages(messages: List[dict]) -> Optional[Dict[str, str]]
         "content": " ".join(texts).strip(),
         "created_at": created_at,
     }
+
+
+def _parse_created_at(value: Optional[str]) -> Optional[datetime]:
+    if not value or not isinstance(value, str):
+        return None
+
+    normalized = value
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
 
 if __name__ == "__main__":
     import uvicorn

@@ -2,7 +2,7 @@
 
 import logging
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import requests
 
@@ -84,6 +84,25 @@ class SupabaseService:
             logger.error("Supabase → erro ao buscar temporários: %s", response.text)
             response.raise_for_status()
         return response.json()
+
+    def get_latest_message(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Retorna a mensagem mais recente registrada para o usuário."""
+        params = {
+            "select": "*",
+            "user_id": f"eq.{user_id}",
+            "order": "created_at.desc",
+            "limit": "1",
+        }
+        url = f"{self._rest_base}/{self._table}"
+        logger.debug("Supabase → buscando última mensagem para %s", user_id)
+        response = requests.get(url, headers=self._headers, params=params, timeout=10)
+        if not response.ok:
+            logger.error("Supabase → erro ao buscar última mensagem: %s", response.text)
+            response.raise_for_status()
+        data = response.json()
+        if not data:
+            return None
+        return data[0]
 
     def delete_temp_messages(self, message_ids: List[str]) -> None:
         """Remove mensagens temporárias processadas."""

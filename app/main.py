@@ -33,6 +33,7 @@ app = FastAPI()
 
 DEBOUNCE_SECONDS = int(os.getenv("DEBOUNCE_SECONDS", "15"))
 HISTORY_LIMIT = int(os.getenv("HISTORY_LIMIT", "40"))
+PRESENCE_EXTRA_SECONDS = int(os.getenv("PRESENCE_EXTRA_SECONDS", "5"))
 
 pending_tasks: Dict[str, Dict[str, Any]] = {}
 _generation_counter: Dict[str, int] = {}
@@ -137,6 +138,13 @@ async def record_temp_message(user_id: str, content: str, role: str, message_id:
     await asyncio.to_thread(supabase_service.save_temp_message, payload)
 
 
+async def set_presence(user_id: str, presence: str, delay_ms: Optional[int] = None) -> None:
+    try:
+        await asyncio.to_thread(evolution_service.send_presence, user_id, presence, delay_ms)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Erro ao atualizar presença (%s) para %s: %s", presence, user_id, exc)
+
+
 async def schedule_user_processing(user_id: str) -> None:
     generation = _generation_counter.get(user_id, 0) + 1
     _generation_counter[user_id] = generation
@@ -149,6 +157,9 @@ async def schedule_user_processing(user_id: str) -> None:
 
     task = asyncio.create_task(_debounce_runner(user_id, generation))
     pending_tasks[user_id] = {"task": task, "generation": generation}
+
+    typing_window_ms = int((DEBOUNCE_SECONDS + PRESENCE_EXTRA_SECONDS) * 1000)
+    asyncio.create_task(set_presence(user_id, "composing", typing_window_ms))
 
 
 async def _debounce_runner(user_id: str, generation: int) -> None:
@@ -215,6 +226,7 @@ async def process_debounced_messages(user_id: str) -> None:
 
     await asyncio.to_thread(supabase_service.delete_temp_messages, temp_ids)
     await send_whatsapp_message(user_id, response_text)
+    await set_presence(user_id, "paused")
 
 
 def _extract_created_at(message_data: dict) -> str:

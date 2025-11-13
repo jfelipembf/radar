@@ -1,15 +1,7 @@
 """
 Operações de banco de dados específicas do módulo Product Radar
 """
-import os
-from supabase import create_client, Client
-from .product_radar_domain import normalize_product_name
-
-# Conexão com Supabase
-supabase: Client = create_client(
-    os.getenv('SUPABASE_URL'),
-    os.getenv('SUPABASE_SERVICE_ROLE_KEY')
-)
+# Removendo import do supabase do nível do módulo para evitar erros de inicialização
 
 def search_products_by_name(product_name: str, sector: str = 'autopecas') -> dict:
     """
@@ -23,6 +15,22 @@ def search_products_by_name(product_name: str, sector: str = 'autopecas') -> dic
         dict: Resultado da busca
     """
     try:
+        import os
+        from supabase import create_client
+
+        from .product_radar_domain import normalize_product_name
+
+        supabase_url = os.getenv('SUPABASE_URL')
+        supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+
+        if not supabase_url or not supabase_key:
+            return {
+                'success': False,
+                'error': 'Supabase não configurado',
+                'data': []
+            }
+
+        supabase = create_client(supabase_url, supabase_key)
         normalized_name = normalize_product_name(product_name)
 
         query = supabase.table('products').select('*').ilike('produto', f'%{normalized_name}%')
@@ -57,6 +65,20 @@ def search_products_by_category(category: str, max_price: float = None) -> dict:
         dict: Resultado da busca
     """
     try:
+        import os
+        from supabase import create_client
+
+        supabase_url = os.getenv('SUPABASE_URL')
+        supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+
+        if not supabase_url or not supabase_key:
+            return {
+                'success': False,
+                'error': 'Supabase não configurado',
+                'data': []
+            }
+
+        supabase = create_client(supabase_url, supabase_key)
         query = supabase.table('products').select('*').eq('categoria', category).eq('disponivel', True)
 
         if max_price:
@@ -88,8 +110,21 @@ def get_recent_products(days: int = 7) -> dict:
         dict: Resultado da busca
     """
     try:
+        import os
+        from supabase import create_client
         from datetime import datetime, timedelta
 
+        supabase_url = os.getenv('SUPABASE_URL')
+        supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+
+        if not supabase_url or not supabase_key:
+            return {
+                'success': False,
+                'error': 'Supabase não configurado',
+                'data': []
+            }
+
+        supabase = create_client(supabase_url, supabase_key)
         limit_date = datetime.now() - timedelta(days=days)
 
         result = supabase.table('products').select('*').gte('atualizado_em', limit_date.isoformat()).execute()
@@ -118,6 +153,20 @@ def get_store_products(store_id: str) -> dict:
         dict: Resultado da busca
     """
     try:
+        import os
+        from supabase import create_client
+
+        supabase_url = os.getenv('SUPABASE_URL')
+        supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+
+        if not supabase_url or not supabase_key:
+            return {
+                'success': False,
+                'error': 'Supabase não configurado',
+                'data': []
+            }
+
+        supabase = create_client(supabase_url, supabase_key)
         result = supabase.table('products').select('*').eq('loja_id', store_id).execute()
 
         return {

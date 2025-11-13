@@ -24,6 +24,13 @@ def compare_prices(product_name: str, sector: str = 'autopecas') -> dict:
         # Buscar produtos
         search_result = search_products_by_name(product_name, sector)
 
+        # Se Supabase não está disponível, retorna mensagem mock
+        if not search_result['success'] and 'Supabase não configurado' in search_result.get('error', ''):
+            logger.warning(f"Supabase não configurado, retornando resposta mock para '{product_name}'")
+            return {
+                "erro": f"RADAR indisponível: Sistema de busca não configurado. Para buscar '{product_name}', configure as variáveis SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY."
+            }
+
         if not search_result['success'] or not search_result['data']:
             return {"erro": f"Nenhum produto encontrado para: {product_name}"}
 

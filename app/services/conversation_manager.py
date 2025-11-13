@@ -12,7 +12,8 @@ import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
-from supabase import create_client, Client
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -36,94 +37,109 @@ class ConversationManager:
     """Gerenciador centralizado de contexto de conversas"""
 
     def __init__(self):
-        supabase_url = os.getenv('SUPABASE_URL')
-        supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+        self.supabase_url = os.getenv('SUPABASE_URL')
+        self.supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
 
-        if not supabase_url or not supabase_key:
+        if not self.supabase_url or not self.supabase_key:
             logger.warning("SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY não configuradas. ConversationManager funcionará em modo limitado.")
-            self.supabase = None
+            self.supabase_available = False
         else:
-            self.supabase: Client = create_client(supabase_url, supabase_key)
+            self.supabase_available = True
 
         self.active_conversations: Dict[str, ConversationState] = {}
         self.debounce_delay = 15  # segundos
         logger.info("ConversationManager inicializado")
 
+    async def _call_supabase_rpc(self, function_name: str, payload: dict):
+        """Executa função RPC no Supabase."""
+        if not self.supabase_available:
+            logger.warning("Supabase não disponível, pulo chamada RPC: %s", function_name)
+            return None
+
+        url = f"{self.supabase_url}/rest/v1/rpc/{function_name}"
+        headers = {
+            "apikey": self.supabase_key,
+            "Authorization": f"Bearer {self.supabase_key}",
+            "Content-Type": "application/json"
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.post(url, json=payload, headers=headers)
+                response.raise_for_status()
+                return response.json()
+        except httpx.HTTPStatusError as exc:
+            logger.error("Erro HTTP ao chamar RPC %s: %s - %s", function_name, exc.response.status_code, exc.response.text)
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.error("Erro ao chamar RPC %s: %s", function_name, exc)
+
+        return None
+
     async def check_first_message_today(self, user_id: str) -> bool:
         """
         Verifica se é a primeira mensagem do dia do usuário
         """
-        try:
-            if not self.supabase:
-                logger.warning("Supabase não disponível, assumindo primeira mensagem")
-                return True
+        result = await self._call_supabase_rpc('is_first_message_today', {'user_phone': user_id})
 
-            # Usar função SQL para verificar
-            result = self.supabase.rpc('is_first_message_today', {
-                'user_phone': user_id
-            }).execute()
+        if result is None:
+            logger.warning("Falha ao verificar primeira mensagem via Supabase. Assumindo True para %s", user_id)
+            return True
 
-            is_first = result.data[0] if result.data else True
-            logger.info(f"Primeira mensagem do dia para {user_id}: {is_first}")
-            return is_first
+        # A função RPC pode retornar lista com boolean ou boolean direto
+        if isinstance(result, list):
+            is_first = bool(result[0]) if result else True
+        else:
+            is_first = bool(result)
 
-        except Exception as e:
-            logger.error(f"Erro ao verificar primeira mensagem: {e}")
-            return True  # Assume primeira mensagem em caso de erro
+        logger.info("Primeira mensagem do dia para %s: %s", user_id, is_first)
+        return is_first
 
     async def save_message(self, user_id: str, role: str, content: str) -> None:
         """
         Salva mensagem no contexto da conversa
         """
-        try:
-            if not self.supabase:
-                logger.warning("Supabase não disponível, mensagem não salva no banco")
-                return
+        result = await self._call_supabase_rpc('save_message_context', {
+            'p_user_id': user_id,
+            'p_role': role,
+            'p_content': content
+        })
 
-            # Usar função SQL para salvar
-            self.supabase.rpc('save_message_context', {
-                'p_user_id': user_id,
-                'p_role': role,
-                'p_content': content
-            }).execute()
-
-            logger.info(f"Mensagem salva: {user_id} - {role}")
-
-        except Exception as e:
-            logger.error(f"Erro ao salvar mensagem: {e}")
-            raise
+        if result is None:
+            logger.warning("Mensagem não salva em Supabase para %s (%s)", user_id, role)
+        else:
+            logger.info("Mensagem salva em Supabase: %s - %s", user_id, role)
 
     async def get_conversation_context(self, user_id: str, limit: int = 10) -> List[MessageContext]:
         """
         Obtém contexto da conversa (últimas N mensagens)
         """
-        try:
-            if not self.supabase:
-                logger.warning("Supabase não disponível, retornando contexto vazio")
-                return []
+        result = await self._call_supabase_rpc('get_conversation_context', {
+            'user_phone': user_id,
+            'limit_count': limit
+        })
 
-            # Usar função SQL para obter contexto
-            result = self.supabase.rpc('get_conversation_context', {
-                'user_phone': user_id,
-                'limit_count': limit
-            }).execute()
-
-            # Converter para objetos MessageContext
-            messages = []
-            for row in result.data:
-                messages.append(MessageContext(
-                    role=row['role'],
-                    content=row['content'],
-                    created_at=row['created_at']
-                ))
-
-            # Retornar em ordem cronológica (mais antiga primeiro)
-            messages.reverse()
-            return messages
-
-        except Exception as e:
-            logger.error(f"Erro ao obter contexto: {e}")
+        if result is None:
+            logger.warning("Contexto não retornado pelo Supabase para %s", user_id)
             return []
+
+        messages: List[MessageContext] = []
+        for row in result:
+            created_at_raw = row.get('created_at')
+            created_at = None
+            if isinstance(created_at_raw, str):
+                try:
+                    created_at = datetime.fromisoformat(created_at_raw.replace('Z', '+00:00'))
+                except ValueError:
+                    created_at = datetime.now()
+
+            messages.append(MessageContext(
+                role=row.get('role', 'user'),
+                content=row.get('content', ''),
+                created_at=created_at or datetime.now()
+            ))
+
+        messages.reverse()
+        return messages
 
     async def start_debounce_timer(self, user_id: str, callback_func) -> None:
         """

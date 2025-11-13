@@ -4,14 +4,14 @@ import asyncio
 from fastapi import FastAPI, Request
 from dotenv import load_dotenv
 
+# Carregar configurações do .env antes de importar módulos que dependem delas
+load_dotenv()
+
 # Importar módulos
 from app.modules.whatsapp import send_whatsapp_message, validate_webhook_data, extract_message_data, should_process_message, format_error_response
 from app.modules.message_processor import process_message_async
 from app.modules.ai_service import generate_ai_response, generate_ai_response_with_context
 from app.modules.product_radar import compare_prices
-
-# Carregar configurações
-load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=os.getenv('LOG_LEVEL', 'INFO').upper())

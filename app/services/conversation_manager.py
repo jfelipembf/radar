@@ -8,12 +8,11 @@ Responsável por:
 
 import asyncio
 import logging
+import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from supabase import create_client, Client
-
-from app.config.settings import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +36,15 @@ class ConversationManager:
     """Gerenciador centralizado de contexto de conversas"""
 
     def __init__(self):
-        self.supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        supabase_url = os.getenv('SUPABASE_URL')
+        supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+
+        if not supabase_url or not supabase_key:
+            logger.warning("SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY não configuradas. ConversationManager funcionará em modo limitado.")
+            self.supabase = None
+        else:
+            self.supabase: Client = create_client(supabase_url, supabase_key)
+
         self.active_conversations: Dict[str, ConversationState] = {}
         self.debounce_delay = 15  # segundos
         logger.info("ConversationManager inicializado")
@@ -47,6 +54,10 @@ class ConversationManager:
         Verifica se é a primeira mensagem do dia do usuário
         """
         try:
+            if not self.supabase:
+                logger.warning("Supabase não disponível, assumindo primeira mensagem")
+                return True
+
             # Usar função SQL para verificar
             result = self.supabase.rpc('is_first_message_today', {
                 'user_phone': user_id
@@ -65,6 +76,10 @@ class ConversationManager:
         Salva mensagem no contexto da conversa
         """
         try:
+            if not self.supabase:
+                logger.warning("Supabase não disponível, mensagem não salva no banco")
+                return
+
             # Usar função SQL para salvar
             self.supabase.rpc('save_message_context', {
                 'p_user_id': user_id,
@@ -83,6 +98,10 @@ class ConversationManager:
         Obtém contexto da conversa (últimas N mensagens)
         """
         try:
+            if not self.supabase:
+                logger.warning("Supabase não disponível, retornando contexto vazio")
+                return []
+
             # Usar função SQL para obter contexto
             result = self.supabase.rpc('get_conversation_context', {
                 'user_phone': user_id,

@@ -90,7 +90,8 @@ class SupabaseService:
         if not message_ids:
             return
 
-        ids_clause = ",".join({mid for mid in message_ids})
+        unique_ids = list(dict.fromkeys(message_ids))
+        ids_clause = ",".join(f'"{mid}"' for mid in unique_ids)
         params = {"id": f"in.({ids_clause})"}
         url = f"{self._rest_base}/{self._temp_table}"
         logger.debug("Supabase → removendo temporários: %s", message_ids)

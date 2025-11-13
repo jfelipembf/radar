@@ -157,7 +157,7 @@ async def _debounce_runner(user_id: str, generation: int) -> None:
         current = pending_tasks.get(user_id)
         if not current or current.get("generation") != generation:
             return
-        await process_debounced_messages(user_id, generation)
+        await process_debounced_messages(user_id)
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -168,7 +168,7 @@ async def _debounce_runner(user_id: str, generation: int) -> None:
             pending_tasks.pop(user_id, None)
 
 
-async def process_debounced_messages(user_id: str, generation: int) -> None:
+async def process_debounced_messages(user_id: str) -> None:
     if not supabase_service:
         return
 
@@ -190,27 +190,25 @@ async def process_debounced_messages(user_id: str, generation: int) -> None:
                 "content": msg["content"],
             })
 
-    for temp in temp_messages:
-        if temp.get("content"):
-            history.append({
-                "role": temp.get("role", "user"),
-                "content": temp["content"],
-            })
+    consolidated = _consolidate_temp_messages(temp_messages)
+    if consolidated:
+        history.append(consolidated)
 
     response_text = await openai_service.generate_response(history=history)
     logger.info("Generated response after debounce for %s: %s", user_id, response_text)
 
-    # Persist mensagens temporárias como histórico definitivo
     temp_ids: List[str] = []
-    for temp in temp_messages:
-        temp_id = temp.get("id")
-        if temp_id:
-            temp_ids.append(str(temp_id))
+    if consolidated:
+        for temp in temp_messages:
+            temp_id = temp.get("id")
+            if temp_id:
+                temp_ids.append(str(temp_id))
+
         await log_message(
             user_id=user_id,
-            content=temp.get("content", ""),
-            role=temp.get("role", "user"),
-            created_at=temp.get("created_at"),
+            content=consolidated["content"],
+            role=consolidated["role"],
+            created_at=consolidated.get("created_at"),
         )
 
     await log_message(user_id, response_text, role="assistant")
@@ -234,6 +232,24 @@ def _sort_key(message: dict) -> str:
     if isinstance(created_at, str):
         return created_at
     return ""
+
+
+def _consolidate_temp_messages(messages: List[dict]) -> Optional[Dict[str, str]]:
+    if not messages:
+        return None
+
+    ordered = sorted(messages, key=_sort_key)
+    texts = [msg.get("content", "") for msg in ordered if msg.get("content")]
+    if not texts:
+        return None
+
+    created_at = ordered[0].get("created_at")
+    role = ordered[0].get("role", "user")
+    return {
+        "role": role,
+        "content": " ".join(texts).strip(),
+        "created_at": created_at,
+    }
 
 if __name__ == "__main__":
     import uvicorn

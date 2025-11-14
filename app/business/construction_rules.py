@@ -114,18 +114,25 @@ MENSAGEM: "{message}"
 
 TAREFA:
 Para cada produto, identifique se o usuário especificou:
-- Capacidade/Volume (ex: 1000L, 500L, 2000L)
-- Tipo/Modelo (ex: CP-II, CP-III, CP-V)
+- Capacidade/Volume (ex: 1000L, 500L, 2000L, mil litros, dois mil litros)
+- Tipo/Modelo (ex: CP-II, CP-III, CP-V, cp2, cp 2)
 - Característica (ex: lavada, grossa, fina)
 - Tamanho/Dimensão (ex: 50kg, 20kg, 6mm, 8mm)
+- Quantidade/Medida (ex: 5m3, 2 sacos, 10 unidades)
 - Qualquer outra especificação técnica relevante
 
-IMPORTANTE:
-- Se o usuário NÃO especificou algo para um produto, retorne "null" para ele
-- Normalize as especificações (ex: "mil litros" → "1000L", "cp 2" → "CP-II")
-- Seja preciso e extraia exatamente o que foi mencionado
+REGRAS IMPORTANTES:
+1. Se o usuário NÃO especificou algo para um produto, retorne "null" para ele
+2. Normalize as especificações:
+   - "mil litros" → "1000L"
+   - "dois mil litros" → "2000L"
+   - "cp 2" ou "cp-ii" → "CP-II"
+   - "5m3" ou "5 metros cúbicos" → "5m3"
+3. Procure por números e unidades próximos ao nome do produto
+4. Seja preciso e extraia exatamente o que foi mencionado
+5. NÃO invente especificações que não estão na mensagem
 
-RESPONDA APENAS com JSON no formato:
+RESPONDA APENAS com JSON válido no formato:
 {{
   "produto1": "especificação" ou null,
   "produto2": "especificação" ou null
@@ -136,6 +143,10 @@ EXEMPLOS:
 Mensagem: "preciso de caixa dagua de mil litros e cimento"
 Produtos: ["caixa d'água", "cimento"]
 Resposta: {{"caixa d'água": "1000L", "cimento": null}}
+
+Mensagem: "preciso de ua caida dagua, de mil litros, 2 sacos de cimento e 5m3 de areia"
+Produtos: ["caixa d'água", "cimento", "areia"]
+Resposta: {{"caixa d'água": "1000L", "cimento": null, "areia": null}}
 
 Mensagem: "quero cimento cp-ii 50kg e areia lavada"
 Produtos: ["cimento", "areia"]
@@ -150,14 +161,28 @@ Resposta: {{"tijolo": null, "argamassa": null}}
         response = await openai_service.generate_response(message=prompt)
         result = response.strip()
         
+        logger.info(f"IA - Resposta bruta de especificações: {result}")
+        
         # Parse JSON
         import json
+        
+        # Tentar limpar a resposta se vier com markdown
+        if result.startswith("```"):
+            # Remover blocos de código markdown
+            result = result.replace("```json", "").replace("```", "").strip()
+            logger.info(f"IA - Resposta limpa: {result}")
+        
         specifications = json.loads(result)
+        logger.info(f"IA - Especificações parseadas: {specifications}")
         
         # Filtrar apenas especificações não-null
-        return {k: v for k, v in specifications.items() if v is not None}
+        filtered = {k: v for k, v in specifications.items() if v is not None}
+        logger.info(f"IA - Especificações filtradas (não-null): {filtered}")
+        
+        return filtered
     except Exception as exc:
-        logger.warning(f"Erro ao extrair especificações: {exc}")
+        logger.error(f"Erro ao extrair especificações: {exc}")
+        logger.error(f"Resposta da IA que causou erro: {result if 'result' in locals() else 'N/A'}")
         return {}
 
 

@@ -472,27 +472,44 @@ class ProductService:
             logger.info(f"Produtos agrupados por categoria: {list(products_by_category.keys())}")
 
             # Para cada categoria especificada, selecionar o produto mais barato
+            logger.info(f"Processando {len(specified_products)} especificações: {list(specified_products.keys())}")
+            
             for category, specification in specified_products.items():
                 # Normalizar categoria para comparação
-                category_normalized = category.lower().strip()
+                category_normalized = category.lower().strip().replace("'", "'").replace("á", "a").replace("ã", "a")
+                logger.info(f"Processando categoria '{category}' (normalizada: '{category_normalized}') com especificação '{specification}'")
                 
                 # Procurar categoria correspondente nos produtos agrupados
                 matched_category = None
                 for cat_key in products_by_category.keys():
-                    if category_normalized in cat_key.lower() or cat_key.lower() in category_normalized:
+                    cat_key_normalized = cat_key.lower().strip().replace("'", "'").replace("á", "a").replace("ã", "a")
+                    logger.info(f"  Comparando '{category_normalized}' com '{cat_key_normalized}'")
+                    
+                    if category_normalized in cat_key_normalized or cat_key_normalized in category_normalized:
                         matched_category = cat_key
+                        logger.info(f"  ✅ Match encontrado: '{cat_key}'")
                         break
+                
+                if not matched_category:
+                    logger.warning(f"  ❌ Nenhum match encontrado para categoria '{category}'")
                 
                 if matched_category:
                     category_products = products_by_category[matched_category]
+                    logger.info(f"  Categoria '{matched_category}' tem {len(category_products)} produtos")
                     
                     # Filtrar produtos que contenham a especificação
                     spec_lower = specification.lower()
-                    matching_products = [
-                        p for p in category_products
-                        if spec_lower in p.get("name", "").lower() or 
-                           spec_lower in p.get("description", "").lower()
-                    ]
+                    matching_products = []
+                    
+                    for p in category_products:
+                        p_name = p.get("name", "").lower()
+                        p_desc = p.get("description", "").lower()
+                        
+                        if spec_lower in p_name or spec_lower in p_desc:
+                            matching_products.append(p)
+                            logger.info(f"    ✅ Match: '{p.get('name')}' contém '{specification}'")
+                        else:
+                            logger.info(f"    ❌ No match: '{p.get('name')}' não contém '{specification}'")
                     
                     if matching_products:
                         # Pegar o mais barato
@@ -505,13 +522,12 @@ class ProductService:
                             "quantity": 1
                         })
                         clarified_categories.append(matched_category)
-                        logger.info(f"Produto especificado adicionado: {category} {specification} - {cheapest.get('name')}")
+                        logger.info(f"  ✅ Produto especificado adicionado: {category} {specification} - {cheapest.get('name')}")
                     else:
                         # Não encontrou produto com a especificação, adicionar para esclarecimento
                         products_to_clarify.extend(category_products)
-                        logger.info(f"Produto '{category}' especificado mas não encontrado com '{specification}'")
-                else:
-                    logger.info(f"Categoria '{category}' especificada mas não encontrada nos produtos")
+                        logger.warning(f"  ⚠️ Produto '{category}' especificado mas não encontrado com '{specification}'")
+                        logger.warning(f"  Produtos disponíveis: {[p.get('name') for p in category_products[:3]]}")
 
             # Identificar produtos que ainda precisam esclarecimento
             # Comparar de forma normalizada
@@ -523,8 +539,12 @@ class ProductService:
                     products_to_clarify.extend(category_products)
                     logger.info(f"Categoria '{category}' precisa esclarecimento")
 
-            logger.info(f"Categorias esclarecidas: {clarified_categories}")
-            logger.info(f"Produtos que precisam esclarecimento: {len(products_to_clarify)}")
+            logger.info(f"="*60)
+            logger.info(f"RESUMO:")
+            logger.info(f"  Categorias esclarecidas: {clarified_categories}")
+            logger.info(f"  Produtos selecionados: {len(selected_products)}")
+            logger.info(f"  Produtos que precisam esclarecimento: {len(products_to_clarify)}")
+            logger.info(f"="*60)
 
             if products_to_clarify:
                 # Ainda há produtos para esclarecer - deixar IA decidir qual perguntar primeiro

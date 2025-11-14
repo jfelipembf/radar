@@ -4,7 +4,7 @@ import logging
 import os
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from dotenv import load_dotenv
 
 from app.services.openai_service import OpenAIService
@@ -57,7 +57,7 @@ DEBOUNCE_SECONDS = int(os.getenv("DEBOUNCE_SECONDS", "15"))
 
 # Rota principal do webhook
 @app.post("/")
-async def webhook(request):
+async def webhook(request: Request):
     """Endpoint principal para webhooks do WhatsApp."""
     return await webhook_handler.handle_webhook(request)
 

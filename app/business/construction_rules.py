@@ -208,59 +208,9 @@ Se já foi esclarecido no histórico, retorne:
         return {"needs_clarification": False, "variations": {}, "message": ""}
 
 
-async def detect_product_switch(user_message: str, conversation_history: List[Dict[str, str]], openai_service) -> Dict[str, Any]:
-    """Detecta se o usuário está mudando para outro produto mencionado anteriormente usando IA."""
-
-    if not conversation_history:
-        return {"is_switching": False, "target_product": None}
-
-    # Usar IA para analisar a conversa e detectar produtos mencionados
-    prompt = f"""
-Analise o histórico da conversa abaixo e determine se o usuário está mudando para outro produto que foi mencionado anteriormente.
-
-HISTÓRICO DA CONVERSA:
-{chr(10).join(f"{'Usuário' if msg.get('role') == 'user' else 'Assistente'}: {msg.get('content', '')}" for msg in conversation_history[-10:])}
-
-MENSAGEM ATUAL DO USUÁRIO: "{user_message}"
-
-TAREFA:
-1. Identifique todos os produtos de construção mencionados no histórico
-2. Determine se a mensagem atual está se referindo a um produto mencionado anteriormente
-3. Se SIM, retorne o nome do produto que o usuário quer discutir agora
-
-PRODUTOS DE CONSTRUÇÃO comuns incluem: tintas, cimentos, vernizes, argamassas, tijolos, britas, areias, caixas d'água, etc.
-
-RESPONDA APENAS com JSON:
-{{
-    "is_switching": true/false,
-    "target_product": "nome do produto mencionado anteriormente" ou null,
-    "reasoning": "breve explicação da decisão"
-}}
-
-Se não está mudando de produto, retorne:
-{{"is_switching": false, "target_product": null, "reasoning": "explicação"}}
-"""
-
-    try:
-        response = await openai_service.generate_response(message=prompt)
-        import json
-        result = json.loads(response.strip())
-
-        return {
-            "is_switching": result.get("is_switching", False),
-            "target_product": result.get("target_product"),
-            "reasoning": result.get("reasoning", "")
-        }
-
-    except Exception as exc:
-        logger.warning(f"Erro na detecção de troca de produto: {exc}")
-        return {"is_switching": False, "target_product": None}
-
-
 __all__ = [
     "should_search_products",
     "extract_product_names",
     "format_product_catalog",
     "analyze_product_variations",
-    "detect_product_switch",
 ]

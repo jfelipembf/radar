@@ -130,74 +130,88 @@ async def analyze_product_variations(products: List[Dict[str, Any]], openai_serv
             for msg in recent_messages
         ])
 
-    # Usar IA pura para categorizar e analisar variações
+    # Usar IA pura para categorizar e analisar variações baseadas nas descrições reais
     prompt = f"""
-Você é um especialista em análise de produtos de construção. Analise a lista abaixo de produtos e:
+Você é um especialista em análise de produtos de construção. Analise os produtos encontrados e faça perguntas específicas baseadas nas variações reais encontradas.
 
-1. AGRUPE os produtos por categoria (ex: caixas d'água, cimentos, tintas, massas, areias, etc.)
-2. Para cada categoria com múltiplos produtos, identifique se há VARIAÇÕES SIGNIFICATIVAS
-3. CONSIDERE o histórico da conversa para EVITAR perguntar sobre variações já esclarecidas
-4. Determine se precisa esclarecer alguma categoria (uma de cada vez, por prioridade)
+PRODUTOS ENCONTRADOS:
+{chr(10).join(f"{i+1}. {p.get('name', '')} - Descrição: {p.get('description', '')}" for i, p in enumerate(products))}
 
-LISTA DE PRODUTOS:
-{chr(10).join(f"{i+1}. {p.get('name', '')} - {p.get('description', '')}" for i, p in enumerate(products))}
+TAREFA:
+1. Analise as descrições reais dos produtos
+2. Identifique variações SIGNIFICATIVAS em cada categoria
+3. Faça UMA pergunta por vez sobre a primeira variação encontrada
+4. Se não houver variações significativas, retorne sem esclarecimento
 
-HISTÓRICO RECENTE DA CONVERSA (para contexto):
-{conversation_context}
+EXEMPLOS DE VARIAÇÕES SIGNIFICATIVAS:
+- Caixas d'água: capacidades diferentes (500L vs 1000L vs 2000L)
+- Cimentos: tipos diferentes (CP-II vs CP-III vs CP-V)
+- Tintas: tipos de uso (interna vs externa, marítima vs comum)
+- Massas: tipos (acrílica vs corrida) ou tamanhos (5kg vs 25kg)
+- Areias: tipos muito diferentes (lavada vs grossa)
 
-CRITÉRIOS PARA ESCLARECIMENTO (prioridade):
-1. Caixas d'água: volumes/capacidades (500L, 1000L, 2000L, etc.)
-2. Cimentos: tipos (CP-II, CP-III, CP-V, etc.)
-3. Tintas/Vernizes: volumes/tipos (1L, 3.6L, 5L, marítimo, interno, etc.)
-4. Massas: tamanhos/tipos (5kg, 10kg, 25kg, acrílica, corrida, etc.)
-5. Areias/Outros: quantidades/tipos quando houver variações
+EXEMPLOS DE QUANDO NÃO PERGUNTAR:
+- Mesmo produto em lojas diferentes (não é variação)
+- Diferenças apenas de preço (não é variação)
+- Descrições idênticas (não é variação)
 
-IMPORTANTE:
-- Se o histórico mostra que variações já foram perguntadas/esclarecidas, NÃO pergunte novamente
-- Considere respostas como "mil litros" = "1000L" como já esclarecido
-- Foque apenas em variações ainda não esclarecidas
+ANÁLISE PASSO A PASSO:
+1. Agrupe produtos por categoria similar
+2. Para cada grupo, verifique se há diferenças SIGNIFICATIVAS nas descrições
+3. Se encontrar diferenças significativas, faça uma pergunta específica sobre a primeira categoria
+4. Se não encontrar diferenças, não pergunte nada
 
-RESPONDA APENAS com JSON válido:
+EXEMPLO DE RESPOSTA:
+- Produtos: "Caixa d'água 500L", "Caixa d'água 1000L", "Caixa d'água 2000L"
+  → Pergunta: "Qual a capacidade da caixa d'água? (500L, 1000L ou 2000L)"
+
+- Produtos: "Cimento CP-II 50kg", "Cimento CP-III 50kg", "Cimento CP-V 50kg"  
+  → Pergunta: "Qual o tipo de cimento? (CP-II, CP-III ou CP-V)"
+
+- Produtos: "Areia lavada fina" (apenas um tipo)
+  → Não pergunta, adiciona diretamente
+
+RESPONDA APENAS com JSON:
 {{
     "needs_clarification": true/false,
-    "current_category": "categoria_escolhida",
-    "clarification_message": "Mensagem clara perguntando sobre a variação específica encontrada",
-    "category_products_indices": [índices dos produtos da categoria, começando do 0],
-    "detected_variations": ["variação1", "variação2", "variação3"]
+    "clarification_message": "Pergunta específica sobre a variação encontrada",
+    "category_to_clarify": "categoria sendo perguntada",
+    "detected_options": ["opção1", "opção2", "opção3"],
+    "reasoning": "breve explicação das variações encontradas"
 }}
 
-Se NÃO precisar esclarecer, retorne:
-{{"needs_clarification": false, "current_category": "", "clarification_message": "", "category_products_indices": [], "detected_variations": []}}
-
-Se já foi esclarecido no histórico, retorne:
-{{"needs_clarification": false, "current_category": "", "clarification_message": "", "category_products_indices": [], "detected_variations": [], "reason": "já_esclarecido"}}
+Se NÃO precisar esclarecer nenhuma variação, retorne:
+{{"needs_clarification": false, "clarification_message": "", "category_to_clarify": "", "detected_options": [], "reasoning": "não há variações significativas"}}
 """
 
     try:
         response = await openai_service.generate_response(message=prompt)
         result = response.strip()
+        logger.info(f"IA análise de variações - Resposta: {result[:200]}...")
 
         # Tentar fazer parse do JSON
         import json
         try:
             analysis = json.loads(result)
+            logger.info(f"IA análise de variações - Parsed: needs_clarification={analysis.get('needs_clarification')}, category={analysis.get('category_to_clarify')}")
         except json.JSONDecodeError:
             logger.warning(f"Falha no parse JSON da análise de variações: {result}")
             return {"needs_clarification": False, "variations": {}, "message": ""}
 
         # Adaptar para o formato esperado
         if analysis.get("needs_clarification"):
-            category_indices = analysis.get("category_products_indices", [])
-            category_products = [products[i] for i in category_indices if i < len(products)]
+            # Para compatibilidade, criar o formato antigo baseado no novo
+            category_indices = []  # IA agora não retorna índices, trabalha com descrições
+            category_products = products  # Mantém todos os produtos, IA filtrará depois
 
             return {
                 "needs_clarification": True,
-                "variations": {analysis.get("current_category", "outro"): {
+                "variations": {analysis.get("category_to_clarify", "produto"): {
                     "products": category_products,
-                    "detected_variations": analysis.get("detected_variations", [])
+                    "detected_variations": analysis.get("detected_options", [])
                 }},
                 "message": analysis.get("clarification_message", ""),
-                "current_category": analysis.get("current_category", ""),
+                "current_category": analysis.get("category_to_clarify", ""),
                 "total_products": len(products)
             }
         else:

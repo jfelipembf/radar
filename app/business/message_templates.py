@@ -75,25 +75,17 @@ def format_interactive_catalog(products: List[dict], supabase_service: "Supabase
 
     for idx, (store_name, store_data) in enumerate(sorted_stores, 1):
         total = store_data["total"]
-        products = store_data["products"]
-        store_info = store_data["store_info"]
         is_cheapest = idx == 1
 
         lines.append("")
         lines.append(f"🏪 *{store_name}*" + (" ⭐ MAIS BARATA" if is_cheapest else ""))
-        lines.append(f"📞 WhatsApp: {store_info.get('phone', 'Não informado')}")
+        lines.append(f"� *Total estimado: {_format_currency(total)}*")
 
-        lines.append("")
-        lines.append("📦 *Produtos:*")
-        for product in products:
-            lines.append(f"• {product['name']}: {product['price_str']} por {product['unit_label']}")
-
-        lines.append("")
-        lines.append(f"💰 *Total estimado: {_format_currency(total)}*")
-        if is_cheapest and len(sorted_stores) > 1:
-            second_store_total = sorted_stores[1][1]["total"]
-            savings = second_store_total - total
-            lines.append(f"💸 *Economia: {_format_currency(savings)}* em relação à segunda opção")
+        # Remover detalhes dos produtos da mensagem inicial
+        # if is_cheapest and len(sorted_stores) > 1:
+        #     second_store_total = sorted_stores[1][1]["total"]
+        #     savings = second_store_total - total
+        #     lines.append(f"💸 *Economia: {_format_currency(savings)}* em relação à segunda opção")
 
     # Adicionar opções interativas
     lines.extend([

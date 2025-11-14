@@ -1,6 +1,6 @@
 """Regras de negócio específicas para materiais de construção."""
 
-from typing import List, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from app.services.openai_service import OpenAIService

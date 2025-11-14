@@ -3,6 +3,7 @@ import logging
 import asyncio
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Request
 from dotenv import load_dotenv
@@ -17,6 +18,13 @@ load_dotenv()
 # Configure logging
 logging.basicConfig(level=os.getenv('LOG_LEVEL', 'INFO').upper())
 logger = logging.getLogger(__name__)
+
+LOCAL_TIMEZONE = os.getenv("LOCAL_TIMEZONE", "America/Sao_Paulo")
+try:
+    LOCAL_ZONE = ZoneInfo(LOCAL_TIMEZONE)
+except Exception:  # noqa: BLE001
+    logger.warning("LOCAL_TIMEZONE inválido (%s); usando UTC", LOCAL_TIMEZONE)
+    LOCAL_ZONE = timezone.utc
 
 # Initialize services
 openai_service = OpenAIService()
@@ -241,7 +249,7 @@ async def maybe_send_daily_greeting(user_id: str) -> None:
         logger.error("Erro ao verificar primeira mensagem do dia para %s: %s", user_id, exc)
         return
 
-    now_utc = datetime.now(timezone.utc)
+    now_local = datetime.now(LOCAL_ZONE)
 
     should_send = False
     if not latest_message:
@@ -249,8 +257,12 @@ async def maybe_send_daily_greeting(user_id: str) -> None:
     else:
         last_created_at = latest_message.get("created_at")
         last_dt = _parse_created_at(last_created_at)
-        if not last_dt or last_dt.date() != now_utc.date():
+        if not last_dt:
             should_send = True
+        else:
+            last_local = last_dt.astimezone(LOCAL_ZONE)
+            if last_local.date() != now_local.date():
+                should_send = True
 
     if not should_send:
         return

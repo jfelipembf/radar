@@ -9,6 +9,11 @@ from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
+try:
+    from app.prompt_template import PROMPT_SHOPPING_ASSISTANT
+except Exception:  # noqa: BLE001
+    PROMPT_SHOPPING_ASSISTANT = "Você é um assistente virtual útil e cordial."
+
 
 class OpenAIService:
     """Handle interactions with OpenAI Chat Completions API."""
@@ -22,7 +27,7 @@ class OpenAIService:
         self._model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
         self._system_prompt = os.getenv(
             "OPENAI_SYSTEM_PROMPT",
-            "Você é um assistente virtual útil e cordial.",
+            PROMPT_SHOPPING_ASSISTANT,
         )
 
     async def generate_response(

@@ -276,6 +276,35 @@ def format_product_catalog_with_budget(store_totals: dict) -> str:
     return "\n".join(lines)
 
 
+def format_selected_products(selected_products: list) -> str:
+    """Formata lista de produtos já selecionados."""
+    if not selected_products:
+        return "Nenhum produto selecionado ainda."
+
+    lines = []
+    lines.append("📋 **PRODUTOS SELECIONADOS:**")
+    lines.append("")
+
+    total = 0
+    for i, item in enumerate(selected_products, 1):
+        product_name = item["type"]
+        price = item["price"]
+        store = item["store"]
+        quantity = item.get("quantity", 1)
+
+        lines.append(f"{i}. {product_name}")
+        lines.append(f"   💰 R$ {price:.2f} - {store}")
+        if quantity > 1:
+            lines.append(f"   📦 {quantity} unidades")
+        lines.append("")
+
+        total += price * quantity
+
+    lines.append(f"**Subtotal atual: R$ {total:.2f}**")
+
+    return "\n".join(lines)
+
+
 def get_menu_options() -> Dict[str, str]:
     """Retorna opções do menu principal."""
     return {
@@ -292,5 +321,6 @@ __all__ = [
     "format_best_price_details",
     "format_all_stores_details",
     "format_product_catalog_with_budget",
+    "format_selected_products",
     "get_menu_options"
 ]

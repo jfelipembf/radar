@@ -132,57 +132,50 @@ async def analyze_product_variations(products: List[Dict[str, Any]], openai_serv
 
     # Usar IA pura para categorizar e analisar variações baseadas nas descrições reais
     clarified_text = f"CATEGORIAS JÁ ESCLARECIDAS: {', '.join(clarified_categories) if clarified_categories else 'nenhuma'}"
-    
+
     prompt = f"""
-Você é um especialista em análise de produtos de construção. Analise os produtos encontrados e faça perguntas específicas baseadas nas variações reais encontradas.
+Você é um assistente inteligente de compras de materiais de construção. Analise TODOS os produtos encontrados e identifique o que o usuário está pedindo.
 
 {clarified_text}
 
-PRODUTOS ENCONTRADOS:
-{chr(10).join(f"{i+1}. {p.get('name', '')} - Descrição: {p.get('description', '')}" for i, p in enumerate(products))}
+LISTA COMPLETA DE TODOS OS PRODUTOS ENCONTRADOS:
+{chr(10).join(f"• {p.get('name', '')} - Descrição: {p.get('description', '')} - Preço: R$ {p.get('price', 'N/A')}" for i, p in enumerate(products))}
 
-TAREFA:
-1. Analise as descrições reais dos produtos
-2. Identifique variações SIGNIFICATIVAS em cada categoria
-3. NÃO pergunte sobre categorias já esclarecidas: {', '.join(clarified_categories) if clarified_categories else 'nenhuma'}
-4. Faça UMA pergunta por vez sobre a primeira variação encontrada que NÃO foi esclarecida
-5. Se não houver variações significativas ou todas já foram esclarecidas, retorne sem esclarecimento
+TAREFA PRINCIPAL:
+Analise todos os produtos acima e determine se há ALGUM produto que ainda precisa de esclarecimento do usuário.
 
-IMPORTANTE:
-- CATEGORIAS JÁ ESCLARECIDAS NÃO DEVEM SER PERGUNTADAS NOVAMENTE
-- Se uma categoria foi esclarecida, ignore variações dessa categoria
-- Foque apenas em categorias ainda não esclarecidas
+INSTRUÇÕES DETALHADAS:
+1. OLHE todos os produtos da lista acima
+2. IDENTIFIQUE produtos que são muito similares mas têm diferenças importantes
+3. IGNORE produtos que já foram esclarecidos: {', '.join(clarified_categories) if clarified_categories else 'nenhuma'}
+4. Se encontrar produtos similares que precisam distinção, pergunte sobre o PRIMEIRO grupo encontrado
+5. Seja ESPECÍFICO nas suas perguntas - mencione as opções reais encontradas
 
-EXEMPLOS DE VARIAÇÕES SIGNIFICATIVAS:
-- Caixas d'água: capacidades diferentes (500L vs 1000L vs 2000L) - se não esclarecida
-- Cimentos: tipos diferentes (CP-II vs CP-III vs CP-V) - se não esclarecida
-- Tintas: tipos de uso (interna vs externa, marítima vs comum) - se não esclarecida
-- Massas: tipos (acrílica vs corrida) ou tamanhos (5kg vs 25kg) - se não esclarecida
-- Areias: tipos muito diferentes (lavada vs grossa) - se não esclarecida
+EXEMPLOS DE QUANDO PERGUNTAR:
+- Vários tipos de cimento (CP-II, CP-III, CP-V) → "Qual tipo de cimento você quer?"
+- Várias capacidades de caixa d'água (500L, 1000L, 2000L) → "Qual capacidade da caixa d'água?"
+- Vários tipos de areia (lavada, grossa) → "Qual tipo de areia?"
 
 EXEMPLOS DE QUANDO NÃO PERGUNTAR:
 - Mesmo produto em lojas diferentes (não é variação)
-- Diferenças apenas de preço (não é variação)
-- Descrições idênticas (não é variação)
-- CATEGORIA JÁ FOI ESCLARECIDA (não perguntar novamente)
+- Diferenças só de preço (não é variação)
+- Todos os produtos são claramente distintos
+- Categoria já foi esclarecida
 
-ANÁLISE PASSO A PASSO:
-1. Agrupe produtos por categoria similar
-2. Para cada grupo NÃO ESCLARECIDO, verifique se há diferenças SIGNIFICATIVAS nas descrições
-3. Se encontrar diferenças significativas em categoria não esclarecida, faça uma pergunta específica
-4. Se não encontrar ou todas já foram esclarecidas, não pergunte nada
+ANÁLISE LIVRE:
+Baseie sua decisão APENAS nos produtos listados acima. Não assuma variações que não existem nos dados.
 
 RESPONDA APENAS com JSON:
 {{
     "needs_clarification": true/false,
-    "clarification_message": "Pergunta específica sobre a variação encontrada",
-    "category_to_clarify": "categoria sendo perguntada (não esclarecida)",
-    "detected_options": ["opção1", "opção2", "opção3"],
-    "reasoning": "breve explicação das variações encontradas"
+    "clarification_message": "Pergunta específica sobre as variações encontradas nos produtos",
+    "category_to_clarify": "categoria identificada que precisa esclarecimento",
+    "detected_options": ["opção real 1", "opção real 2", "opção real 3"],
+    "reasoning": "breve explicação de quais produtos similares foram encontrados"
 }}
 
-Se NÃO precisar esclarecer nenhuma variação NOVA, retorne:
-{{"needs_clarification": false, "clarification_message": "", "category_to_clarify": "", "detected_options": [], "reasoning": "não há variações significativas ou todas já esclarecidas"}}
+Se NÃO HÁ NENHUMA variação significativa a esclarecer, retorne:
+{{"needs_clarification": false, "clarification_message": "", "category_to_clarify": "", "detected_options": [], "reasoning": "todos os produtos são claramente distintos ou categorias já esclarecidas"}}
 """
 
     try:

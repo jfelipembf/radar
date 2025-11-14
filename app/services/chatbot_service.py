@@ -88,7 +88,7 @@ class ChatbotService:
         search_source = consolidated["content"] if consolidated else _latest_user_content(history)
 
         # Buscar produtos se aplicável
-        catalog_context = await self._build_product_context(search_source)
+        catalog_context = await self._build_product_context(user_id, search_source)
 
         # Preparar resposta
         response_text = await self._prepare_response(user_id, history, catalog_context)
@@ -124,7 +124,7 @@ class ChatbotService:
 
         return history
 
-    async def _build_product_context(self, search_text: Optional[str]) -> Optional[Dict[str, Optional[str]]]:
+    async def _build_product_context(self, user_id: str, search_text: Optional[str]) -> Optional[Dict[str, Optional[str]]]:
         """Constrói contexto de produtos baseado no texto de busca."""
         if not search_text:
             return None

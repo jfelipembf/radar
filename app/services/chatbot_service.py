@@ -238,8 +238,14 @@ class MessageHandler:
         logger.info(f"Categorias já esclarecidas: {clarified_categories}")
 
         # Buscar produtos específicos baseado na resposta do usuário
-        # Em vez de filtrar uma lista existente, buscar novos produtos
-        search_text = f"{current_category} {text}".strip()
+        # Usar a categoria atual para fazer uma busca mais precisa
+        if current_category and current_category != "produto":
+            search_text = f"{current_category} {text}".strip()
+        else:
+            # Fallback se não temos categoria específica
+            search_text = text.strip()
+
+        logger.info(f"Buscando produtos com query: '{search_text}'")
 
         try:
             # Buscar produtos no banco baseado na resposta
@@ -256,9 +262,25 @@ class MessageHandler:
                 # Pegar o produto mais barato encontrado
                 cheapest_product = min(found_products, key=lambda x: _coerce_price(x.get("price", 0)))
 
+                # Criar nome do tipo baseado no produto encontrado e resposta do usuário
+                # Usar uma abordagem genérica que funciona com qualquer produto
+                product_name = cheapest_product.get("name", "").strip()
+
+                # Se o produto já contém a especificação na resposta do usuário, usar o nome completo
+                if text.lower() in product_name.lower():
+                    type_name = product_name
+                else:
+                    # Combinar categoria com especificação do usuário
+                    if current_category and current_category != "produto":
+                        type_name = f"{current_category.title()} {text}"
+                    else:
+                        type_name = f"{product_name} - {text}"
+
+                logger.info(f"Nome do produto identificado: '{product_name}' -> Tipo: '{type_name}'")
+
                 # Adicionar à lista de selecionados
                 selected_product = {
-                    "type": f"{current_category.title()} {text}",
+                    "type": type_name,
                     "product": cheapest_product,
                     "price": _coerce_price(cheapest_product.get("price", 0)),
                     "store": cheapest_product.get("store", {}).get("name", "Loja"),
@@ -448,7 +470,7 @@ class ProductService:
                     self.conversation_manager.update_user_state(user_id, {
                         "pending_products": unique_products,
                         "awaiting_clarification": True,
-                        "current_category": variation_analysis.get("category_to_clarify", "produto"),
+                        "current_category": variation_analysis.get("category_to_clarify", "caixa_dágua"),
                         "clarified_categories": [],
                         "selected_products": []
                     })

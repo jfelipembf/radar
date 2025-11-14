@@ -1,5 +1,7 @@
 """Regras de negócio específicas para materiais de construção."""
 
+import logging
+
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -7,6 +9,8 @@ if TYPE_CHECKING:
     from app.services.supabase_service import SupabaseService
 
 from app.business.message_templates import format_interactive_catalog
+
+logger = logging.getLogger(__name__)
 
 
 async def should_search_products(message: str, openai_service: "OpenAIService") -> bool:

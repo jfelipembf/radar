@@ -82,6 +82,12 @@ class ChatbotService:
         # Limpar mensagens temporárias e salvar resposta
         await self._cleanup_and_save(user_id, temp_messages, consolidated, response_text)
 
+        # ENVIAR resposta final via WhatsApp
+        await self._send_whatsapp_message(user_id, response_text)
+
+        # Atualizar presença para "paused"
+        await self._update_presence(user_id, "paused")
+
         return response_text
 
     async def _build_message_history(self, user_id: str) -> List[Dict[str, str]]:
@@ -244,9 +250,10 @@ class ChatbotService:
         await asyncio.to_thread(self.supabase_service.save_temp_message, payload)
 
     async def _schedule_user_processing(self, user_id: str):
-        """Agenda processamento debounced (simplificado)."""
-        # TODO: implementar debounce real
-        asyncio.create_task(self.process_debounced_messages(user_id))
+        """Agenda processamento debounced."""
+        # Aguardar debounce e processar
+        await asyncio.sleep(2)  # Debounce simplificado de 2 segundos para teste
+        await self.process_debounced_messages(user_id)
 
     async def _log_message(self, user_id: str, content: str, role: str, created_at: Optional[str] = None):
         """Persiste mensagem no Supabase."""
@@ -265,12 +272,9 @@ class ChatbotService:
         except Exception as exc:
             logger.error("Erro ao salvar mensagem no Supabase: %s", exc)
 
-    async def _send_whatsapp_message(self, number: str, text: str):
-        """Envia mensagem via WhatsApp."""
+    async def _update_presence(self, user_id: str, presence: str, delay_ms: Optional[int] = None):
+        """Atualiza presença do WhatsApp."""
         try:
-            await asyncio.to_thread(self.evolution_service.send_message, number, text)
-        except Exception as e:
-            logger.error(f"Error sending message: {e}")
-
-
-__all__ = ["ChatbotService"]
+            await asyncio.to_thread(self.evolution_service.send_presence, user_id, presence, delay_ms)
+        except Exception as exc:
+            logger.error("Erro ao atualizar presença (%s) para %s: %s", presence, user_id, exc)

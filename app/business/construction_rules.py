@@ -181,7 +181,8 @@ Se NÃO HÁ NENHUMA variação significativa a esclarecer, retorne:
     try:
         response = await openai_service.generate_response(message=prompt)
         result = response.strip()
-        logger.info(f"IA análise de variações - Resposta: {result[:200]}...")
+        logger.info(f"IA análise de variações - Resposta completa: {result}")
+        logger.info(f"IA análise de variações - Tamanho da resposta: {len(result)} caracteres")
 
         # Tentar fazer parse do JSON
         import json

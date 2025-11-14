@@ -380,6 +380,53 @@ A mensagem indica interesse em produtos de construção?
         return False
 
 
+async def _extract_product_names(message: str) -> List[str]:
+    """Extrai nomes de produtos específicos mencionados na mensagem usando IA."""
+    if not openai_service:
+        return []
+
+    prompt = f"""
+Você é um assistente especializado em identificar produtos de construção mencionados em mensagens.
+
+Analise a seguinte mensagem do usuário e extraia APENAS os nomes dos produtos de construção mencionados especificamente.
+
+IMPORTANTE:
+- Liste apenas produtos que são claramente mencionados
+- Use nomes simples e comuns de produtos de construção
+- Ignore verbos, adjetivos e outras palavras que não sejam nomes de produtos
+- Se não houver produtos específicos mencionados, retorne lista vazia
+- Responda apenas com uma lista separada por vírgulas, sem explicações
+
+Exemplos:
+Mensagem: "Quanto custa o cimento e a areia?"
+Resposta: cimento,areia
+
+Mensagem: "Preciso de tinta acrílica branca e tijolos"
+Resposta: tinta acrílica,tijolo
+
+Mensagem: "Oi, tudo bem?"
+Resposta: (lista vazia)
+
+Mensagem: "{message}"
+
+Quais produtos de construção são mencionados?
+""".strip()
+
+    try:
+        response = await openai_service.generate_response(message=prompt)
+        result = response.strip()
+        if not result or result.lower() in ['nenhum', 'vazio', 'empty', 'none', '(lista vazia)']:
+            return []
+
+        # Processar a resposta em lista
+        products = [p.strip().lower() for p in result.split(',') if p.strip()]
+        logger.debug("Catálogo → Produtos extraídos pela IA: %s", products)
+        return products
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Erro ao extrair produtos pela IA: %s", exc)
+        return []
+
+
 async def _build_product_context(search_text: Optional[str]) -> Optional[Dict[str, Optional[str]]]:
     if not supabase_service or not search_text:
         return None
@@ -390,28 +437,43 @@ async def _build_product_context(search_text: Optional[str]) -> Optional[Dict[st
         logger.info("Catálogo → IA decidiu não buscar produtos para: %s", search_text)
         return None
 
-    terms = _extract_search_terms(search_text)
-    if not terms:
+    # Extrair produtos específicos mencionados usando IA
+    product_names = await _extract_product_names(search_text)
+    if not product_names:
+        logger.info("Catálogo → Nenhum produto específico identificado em: %s", search_text)
         return None
 
-    logger.debug("Catálogo → termos extraídos: %s", terms)
+    logger.debug("Catálogo → produtos identificados: %s", product_names)
 
     try:
+        # Buscar produtos específicos no Supabase
         products = await asyncio.to_thread(
             supabase_service.get_products,
             "material_construcao",
-            terms,
+            product_names,  # Usar nomes de produtos ao invés de termos genéricos
             40,
         )
+
+        # Filtrar apenas produtos que contenham os nomes identificados
+        filtered_products = []
+        for product in products:
+            product_name = product.get("name", "").lower()
+            if any(prod_name in product_name for prod_name in product_names):
+                filtered_products.append(product)
+
+        logger.info("Catálogo → %d produtos retornados, %d após filtro específico", len(products), len(filtered_products))
+
+        if not filtered_products:
+            logger.info("Catálogo → nenhum produto correspondente após filtro")
+            return None
+
+        model_context, user_message = _format_product_catalog(filtered_products)
+        if not model_context and not user_message:
+            logger.info("Catálogo → nenhum produto formatado para os termos %s", product_names)
+        return {"model": model_context, "user": user_message}
     except Exception as exc:  # noqa: BLE001
         logger.error("Erro ao buscar catálogo de produtos: %s", exc)
         return None
-
-    logger.info("Catálogo → %d produtos retornados pelo Supabase", len(products))
-    model_context, user_message = _format_product_catalog(products)
-    if not model_context and not user_message:
-        logger.info("Catálogo → nenhum produto formatado para os termos %s", terms)
-    return {"model": model_context, "user": user_message}
 
 
 def _format_product_catalog(products: List[Dict[str, Any]]) -> tuple[Optional[str], Optional[str]]:

@@ -66,11 +66,11 @@ def format_interactive_catalog(products: List[dict], supabase_service: "Supabase
     if not store_totals:
         return "Não há preços válidos disponíveis no momento."
 
-    # Ordenar lojas por preço total (mais barato primeiro)
-    sorted_stores = sorted(store_totals.items(), key=lambda x: x[1]["total"])
+    # Ordenar lojas por preço total (mais barato primeiro) e pegar apenas as 5 melhores
+    sorted_stores = sorted(store_totals.items(), key=lambda x: x[1]["total"])[:5]
 
     # Construir mensagem
-    lines = ["Encontrei as seguintes opções de compra:"]
+    lines = ["Encontrei as seguintes opções de compra (5 melhores lojas):"]
 
     for idx, (store_name, store_data) in enumerate(sorted_stores, 1):
         total = store_data["total"]
@@ -89,7 +89,7 @@ def format_interactive_catalog(products: List[dict], supabase_service: "Supabase
     lines.extend([
         "",
         "📋 *Opções:*",
-        "1️⃣ Finalizar compra",
+        "1️⃣ Finalizar compra da loja mais barata",
         "2️⃣ Ver detalhes do melhor preço",
         "3️⃣ Ver detalhes de todas as lojas",
         "",

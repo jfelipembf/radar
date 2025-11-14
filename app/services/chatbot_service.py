@@ -48,7 +48,11 @@ class ChatbotService:
         # Verificar se é uma opção interativa (1, 2, 3, etc.)
         interactive_response = await self._handle_interactive_option(user_id, text.strip())
         if interactive_response:
-            return interactive_response
+            # Enviar resposta interativa diretamente via WhatsApp
+            await self._send_whatsapp_message(user_id, interactive_response)
+            # Atualizar presença
+            await self._update_presence(user_id, "paused")
+            return "interactive_processed"
 
         # Se Supabase não está disponível, responder imediatamente
         if not self.supabase_service:

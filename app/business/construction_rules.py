@@ -115,7 +115,7 @@ def format_product_catalog(products: List[dict], supabase_service: "SupabaseServ
     return model_context, user_message
 
 
-async def analyze_product_variations(products: List[Dict[str, Any]], openai_service, conversation_history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
+async def analyze_product_variations(products: List[Dict[str, Any]], openai_service, conversation_history: Optional[List[Dict[str, str]]] = None, clarified_categories: Optional[List[str]] = None) -> Dict[str, Any]:
     """Analisa variações dos produtos encontrados usando IA pura com contexto conversacional."""
 
     if not products or len(products) <= 1:
@@ -131,8 +131,12 @@ async def analyze_product_variations(products: List[Dict[str, Any]], openai_serv
         ])
 
     # Usar IA pura para categorizar e analisar variações baseadas nas descrições reais
+    clarified_text = f"CATEGORIAS JÁ ESCLARECIDAS: {', '.join(clarified_categories) if clarified_categories else 'nenhuma'}"
+    
     prompt = f"""
 Você é um especialista em análise de produtos de construção. Analise os produtos encontrados e faça perguntas específicas baseadas nas variações reais encontradas.
+
+{clarified_text}
 
 PRODUTOS ENCONTRADOS:
 {chr(10).join(f"{i+1}. {p.get('name', '')} - Descrição: {p.get('description', '')}" for i, p in enumerate(products))}
@@ -140,48 +144,45 @@ PRODUTOS ENCONTRADOS:
 TAREFA:
 1. Analise as descrições reais dos produtos
 2. Identifique variações SIGNIFICATIVAS em cada categoria
-3. Faça UMA pergunta por vez sobre a primeira variação encontrada
-4. Se não houver variações significativas, retorne sem esclarecimento
+3. NÃO pergunte sobre categorias já esclarecidas: {', '.join(clarified_categories) if clarified_categories else 'nenhuma'}
+4. Faça UMA pergunta por vez sobre a primeira variação encontrada que NÃO foi esclarecida
+5. Se não houver variações significativas ou todas já foram esclarecidas, retorne sem esclarecimento
+
+IMPORTANTE:
+- CATEGORIAS JÁ ESCLARECIDAS NÃO DEVEM SER PERGUNTADAS NOVAMENTE
+- Se uma categoria foi esclarecida, ignore variações dessa categoria
+- Foque apenas em categorias ainda não esclarecidas
 
 EXEMPLOS DE VARIAÇÕES SIGNIFICATIVAS:
-- Caixas d'água: capacidades diferentes (500L vs 1000L vs 2000L)
-- Cimentos: tipos diferentes (CP-II vs CP-III vs CP-V)
-- Tintas: tipos de uso (interna vs externa, marítima vs comum)
-- Massas: tipos (acrílica vs corrida) ou tamanhos (5kg vs 25kg)
-- Areias: tipos muito diferentes (lavada vs grossa)
+- Caixas d'água: capacidades diferentes (500L vs 1000L vs 2000L) - se não esclarecida
+- Cimentos: tipos diferentes (CP-II vs CP-III vs CP-V) - se não esclarecida
+- Tintas: tipos de uso (interna vs externa, marítima vs comum) - se não esclarecida
+- Massas: tipos (acrílica vs corrida) ou tamanhos (5kg vs 25kg) - se não esclarecida
+- Areias: tipos muito diferentes (lavada vs grossa) - se não esclarecida
 
 EXEMPLOS DE QUANDO NÃO PERGUNTAR:
 - Mesmo produto em lojas diferentes (não é variação)
 - Diferenças apenas de preço (não é variação)
 - Descrições idênticas (não é variação)
+- CATEGORIA JÁ FOI ESCLARECIDA (não perguntar novamente)
 
 ANÁLISE PASSO A PASSO:
 1. Agrupe produtos por categoria similar
-2. Para cada grupo, verifique se há diferenças SIGNIFICATIVAS nas descrições
-3. Se encontrar diferenças significativas, faça uma pergunta específica sobre a primeira categoria
-4. Se não encontrar diferenças, não pergunte nada
-
-EXEMPLO DE RESPOSTA:
-- Produtos: "Caixa d'água 500L", "Caixa d'água 1000L", "Caixa d'água 2000L"
-  → Pergunta: "Qual a capacidade da caixa d'água? (500L, 1000L ou 2000L)"
-
-- Produtos: "Cimento CP-II 50kg", "Cimento CP-III 50kg", "Cimento CP-V 50kg"  
-  → Pergunta: "Qual o tipo de cimento? (CP-II, CP-III ou CP-V)"
-
-- Produtos: "Areia lavada fina" (apenas um tipo)
-  → Não pergunta, adiciona diretamente
+2. Para cada grupo NÃO ESCLARECIDO, verifique se há diferenças SIGNIFICATIVAS nas descrições
+3. Se encontrar diferenças significativas em categoria não esclarecida, faça uma pergunta específica
+4. Se não encontrar ou todas já foram esclarecidas, não pergunte nada
 
 RESPONDA APENAS com JSON:
 {{
     "needs_clarification": true/false,
     "clarification_message": "Pergunta específica sobre a variação encontrada",
-    "category_to_clarify": "categoria sendo perguntada",
+    "category_to_clarify": "categoria sendo perguntada (não esclarecida)",
     "detected_options": ["opção1", "opção2", "opção3"],
     "reasoning": "breve explicação das variações encontradas"
 }}
 
-Se NÃO precisar esclarecer nenhuma variação, retorne:
-{{"needs_clarification": false, "clarification_message": "", "category_to_clarify": "", "detected_options": [], "reasoning": "não há variações significativas"}}
+Se NÃO precisar esclarecer nenhuma variação NOVA, retorne:
+{{"needs_clarification": false, "clarification_message": "", "category_to_clarify": "", "detected_options": [], "reasoning": "não há variações significativas ou todas já esclarecidas"}}
 """
 
     try:

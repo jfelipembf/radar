@@ -231,10 +231,15 @@ class MessageHandler:
 
         # Usar IA para filtrar produtos baseado na resposta completa do usuário
         conversation_history = await self.chatbot_service._build_message_history(user_id)
+        logger.info(f"Processando esclarecimento - categoria atual: {current_category}")
+        logger.info(f"Produtos pendentes antes do filtro: {len(pending_products)}")
+        logger.info(f"Categorias já esclarecidas: {clarified_categories}")
+
         prompt = f"""
 Você é um especialista em filtrar produtos de construção baseado nas especificações do cliente.
 
 CONTEXTO: Estamos esclarecendo especificações da categoria "{current_category}"
+CATEGORIAS JÁ ESCLARECIDAS: {', '.join(clarified_categories) if clarified_categories else 'nenhuma'}
 
 LISTA COMPLETA DE PRODUTOS DISPONÍVEIS:
 {chr(10).join(f"{i+1}. {p.get('name', '')} - {p.get('description', '')}" for i, p in enumerate(pending_products))}
@@ -248,16 +253,15 @@ TAREFA:
 Analise a resposta do cliente e identifique quais produtos ele quer manter.
 O cliente pode especificar volumes, tipos, capacidades, etc. de forma natural.
 
-EXEMPLOS:
-- Cliente diz "500L" → manter apenas produtos com 500L
-- Cliente diz "mil litros" ou "1000L" → manter apenas produtos com 1000L
-- Cliente diz "CP-II" → manter apenas cimentos CP-II
-- Cliente diz "não quero esse" → manter todos exceto o mencionado
-
 IMPORTANTE:
-- Considere o histórico da conversa para entender o contexto
-- Se o cliente já especificou anteriormente, respeite essas escolhas
-- Seja inteligente na interpretação das respostas
+- Foque APENAS na categoria atual: {current_category}
+- NÃO pergunte sobre categorias já esclarecidas: {', '.join(clarified_categories) if clarified_categories else 'nenhuma'}
+- Se a resposta já foi esclarecida anteriormente, mantenha apenas os produtos filtrados
+
+EXEMPLOS:
+- Cliente diz "CP-II" para cimento → manter apenas cimentos CP-II
+- Cliente diz "1000L" para caixa d'água → manter apenas caixas de 1000L
+- Cliente já especificou anteriormente → respeitar escolhas anteriores
 
 RESPONDA APENAS com JSON:
 {{
@@ -291,15 +295,23 @@ Exemplo: Cliente diz "1000L" para caixas d'água
             # Manter produtos de outras categorias + adicionar produtos filtrados da categoria atual
             updated_pending_products = filtered_products_list
 
+            logger.info(f"Produtos após filtro: {len(updated_pending_products)}")
+            logger.info(f"Adicionando categoria '{current_category}' às esclarecidas")
+
             # Adicionar categoria atual às esclarecidas
             updated_clarified_categories = clarified_categories + [current_category]
 
+            logger.info(f"Verificando se ainda há variações em produtos restantes...")
+            logger.info(f"Categorias esclarecidas: {updated_clarified_categories}")
+
             # Verificar se ainda há categorias que precisam esclarecimento
-            remaining_analysis = await analyze_product_variations(updated_pending_products, self.chatbot_service.openai_service)
+            remaining_analysis = await analyze_product_variations(updated_pending_products, self.chatbot_service.openai_service, clarified_categories=updated_clarified_categories)
+            logger.info(f"Análise de variações restantes: needs_clarification={remaining_analysis.get('needs_clarification')}")
 
             if remaining_analysis["needs_clarification"]:
                 # Ainda há mais categorias para esclarecer
                 next_category = remaining_analysis.get("current_category")
+                logger.info(f"Próxima categoria a esclarecer: {next_category}")
                 self.conversation_manager.update_user_state(user_id, {
                     "pending_products": updated_pending_products,
                     "awaiting_clarification": True,
@@ -310,6 +322,7 @@ Exemplo: Cliente diz "1000L" para caixas d'água
                 return f"{clarification_message}\n\n{remaining_analysis['message']}"
             else:
                 # Todas as categorias esclarecidas - mostrar orçamento final
+                logger.info("Todas as categorias esclarecidas - mostrando orçamento final")
                 self.conversation_manager.update_user_state(user_id, {
                     "awaiting_clarification": False,
                     "pending_products": None,
@@ -407,7 +420,8 @@ class ProductService:
             variation_analysis = await analyze_product_variations(
                 filtered_products,
                 self.chatbot_service.openai_service,
-                conversation_history=await self.chatbot_service._build_message_history(user_id)
+                conversation_history=await self.chatbot_service._build_message_history(user_id),
+                clarified_categories=[]  # Inicialmente nenhuma categoria esclarecida
             )
             logger.info(f"Análise de variações concluída: needs_clarification={variation_analysis.get('needs_clarification')}")
 

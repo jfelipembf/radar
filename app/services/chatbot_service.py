@@ -16,6 +16,7 @@ from app.business.message_templates import (
     format_best_price_details,
     format_all_stores_details,
     format_product_catalog_with_budget,
+    format_selected_products,
     get_menu_options,
 )
 from app.utils.formatters import _coerce_price, _format_currency, _format_date, _format_phone, _parse_created_at
@@ -295,7 +296,13 @@ class MessageHandler:
                 # Formatar mensagem com produtos selecionados + próxima pergunta
                 selected_message = format_selected_products(selected_products)
 
-                return f"Produto adicionado!\n\n{selected_message}\n\n{variation_analysis['clarification_message']}"
+                # Verificar se tem clarification_message ou message
+                clarification_msg = variation_analysis.get("clarification_message") or variation_analysis.get("message")
+                if not clarification_msg:
+                    logger.error(f"IA não retornou clarification_message ou message: {variation_analysis}")
+                    clarification_msg = "Poderia especificar mais detalhes?"
+
+                return f"Produto adicionado!\n\n{selected_message}\n\n{clarification_msg}"
             else:
                 # Todas as variações esclarecidas - mostrar orçamento final
                 self.conversation_manager.update_user_state(user_id, {
@@ -411,6 +418,14 @@ class ProductService:
 
             logger.info(f"Produtos únicos após filtro: {len(unique_products)}")
 
+            # VERIFICAR se encontrou produtos
+            if not unique_products:
+                logger.info("Nenhum produto encontrado no banco de dados")
+                return {
+                    "model": "Produtos não encontrados",
+                    "user": f"Não encontrei produtos correspondentes à sua solicitação. Tente reformular com termos mais específicos ou verifique se os produtos estão disponíveis em nosso catálogo."
+                }
+
             # DEIXAR IA ANALISAR LIVREMENTE todos os produtos encontrados
             if unique_products:
                 variation_analysis = await analyze_product_variations(
@@ -424,10 +439,10 @@ class ProductService:
                     logger.info("IA detectou necessidade de esclarecimento inicial")
                     logger.info(f"Análise completa retornada: {variation_analysis}")
 
-                    # Verificar se tem clarification_message
-                    clarification_msg = variation_analysis.get("clarification_message")
+                    # Verificar se tem clarification_message ou message
+                    clarification_msg = variation_analysis.get("clarification_message") or variation_analysis.get("message")
                     if not clarification_msg:
-                        logger.error(f"IA não retornou clarification_message: {variation_analysis}")
+                        logger.error(f"IA não retornou clarification_message ou message: {variation_analysis}")
                         clarification_msg = "Poderia especificar mais detalhes sobre os produtos?"
 
                     self.conversation_manager.update_user_state(user_id, {
@@ -452,7 +467,11 @@ class ProductService:
                     return {"model": "Produtos encontrados sem variações conflitantes", "user": user_message}
         except Exception as exc:
             logger.error("Erro ao buscar catálogo de produtos: %s", exc)
-            return None
+            # Em vez de retornar None (que cai no fallback do OpenAI), retornar mensagem clara
+            return {
+                "model": "Erro na busca de produtos",
+                "user": "Desculpe, ocorreu um problema técnico ao buscar os produtos. Tente novamente em alguns instantes ou reformule sua solicitação."
+            }
 
     async def _save_conversation_state_for_products(self, user_id: str, products: List[dict]):
         """Salva estado da conversa com dados dos produtos para opções interativas."""

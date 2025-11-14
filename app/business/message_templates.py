@@ -88,10 +88,10 @@ def format_interactive_catalog(products: List[dict], supabase_service: "Supabase
             lines.append(f"• {product['name']}: {product['price_str']} por {product['unit_label']}")
 
         lines.append("")
-        lines.append(f"💰 *Total estimado: {format_currency(total)}*")
+        lines.append(f"💰 *Total estimado: {_format_currency(total)}*")
         if is_cheapest and len(sorted_stores) > 1:
             savings = sorted_stores[1]["total"] - total
-            lines.append(f"💸 *Economia: {format_currency(savings)}* em relação à segunda opção")
+            lines.append(f"💸 *Economia: {_format_currency(savings)}* em relação à segunda opção")
 
     # Adicionar opções interativas
     lines.extend([

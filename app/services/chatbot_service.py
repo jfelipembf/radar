@@ -273,9 +273,16 @@ class ChatbotService:
         await asyncio.to_thread(self.supabase_service.save_temp_message, payload)
 
     async def _schedule_user_processing(self, user_id: str):
-        """Agenda processamento debounced."""
-        # Aguardar debounce reduzido para teste (0.5 segundos)
-        await asyncio.sleep(0.5)  # Reduzido para resposta mais rápida
+        """Agenda processamento debounced com typing indicator."""
+        # Enviar status "composing" durante o processamento
+        await self._update_presence(user_id, "composing")
+
+        # Aguardar debounce de 10 segundos
+        await asyncio.sleep(10)
+
+        # Voltar ao status normal antes de processar
+        await self._update_presence(user_id, "paused")
+
         await self.process_debounced_messages(user_id)
 
     async def _log_message(self, user_id: str, content: str, role: str, created_at: Optional[str] = None):

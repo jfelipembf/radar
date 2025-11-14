@@ -226,8 +226,10 @@ async def process_debounced_messages(user_id: str) -> None:
             history.append({"role": "system", "content": model_context})
 
     if catalog_message:
+        logger.info("Catálogo Supabase encontrado para %s; respondendo com dados estruturados", user_id)
         response_text = catalog_message
     else:
+        logger.info("Nenhum catálogo disponível para %s; delegando resposta à OpenAI", user_id)
         response_text = await openai_service.generate_response(history=history)
     logger.info("Generated response after debounce for %s: %s", user_id, response_text)
 
@@ -357,6 +359,8 @@ async def _build_product_context(search_text: Optional[str]) -> Optional[Dict[st
     if not terms:
         return None
 
+    logger.debug("Catálogo → termos extraídos: %s", terms)
+
     try:
         products = await asyncio.to_thread(
             supabase_service.get_products,
@@ -368,7 +372,10 @@ async def _build_product_context(search_text: Optional[str]) -> Optional[Dict[st
         logger.error("Erro ao buscar catálogo de produtos: %s", exc)
         return None
 
+    logger.info("Catálogo → %d produtos retornados pelo Supabase", len(products))
     model_context, user_message = _format_product_catalog(products)
+    if not model_context and not user_message:
+        logger.info("Catálogo → nenhum produto formatado para os termos %s", terms)
     return {"model": model_context, "user": user_message}
 
 
@@ -394,6 +401,7 @@ def _format_product_catalog(products: List[Dict[str, Any]]) -> tuple[Optional[st
             "Não encontrei produtos correspondentes no catálogo do Supabase para essa descrição. "
             "Pode tentar informar o item com outros detalhes (ex.: nome completo, marca, unidade)?"
         )
+        logger.info("Catálogo → nenhuma correspondência para a consulta atual")
         return "\n".join(instruction_lines), user_message
 
     instruction_lines.append("")
@@ -454,6 +462,10 @@ def _format_product_catalog(products: List[Dict[str, Any]]) -> tuple[Optional[st
                 user_lines.append(
                     f"  Economia aproximada em relação à segunda opção: { _format_currency(economy) }"
                 )
+
+    if not user_lines or len(user_lines) == 1:
+        logger.info("Catálogo → produtos encontrados, porém não formatados para resposta")
+        return "\n".join(instruction_lines), None
 
     model_context = "\n".join(instruction_lines)
     user_message = "\n".join(user_lines)

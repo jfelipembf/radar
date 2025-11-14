@@ -529,15 +529,34 @@ class ProductService:
                         logger.warning(f"  ⚠️ Produto '{category}' especificado mas não encontrado com '{specification}'")
                         logger.warning(f"  Produtos disponíveis: {[p.get('name') for p in category_products[:3]]}")
 
-            # Identificar produtos que ainda precisam esclarecimento
+            # Para categorias NÃO especificadas, verificar se há variações e adicionar para esclarecimento
             # Comparar de forma normalizada
             clarified_normalized = [c.lower().strip() for c in clarified_categories]
             
             for category, category_products in products_by_category.items():
                 category_normalized = category.lower().strip()
                 if category_normalized not in clarified_normalized:
-                    products_to_clarify.extend(category_products)
-                    logger.info(f"Categoria '{category}' precisa esclarecimento")
+                    # Categoria não foi especificada pelo usuário
+                    if category_products:
+                        # Verificar se há variações diferentes (tipos, tamanhos, etc.)
+                        # Se houver apenas 1 produto, adicionar automaticamente
+                        # Se houver múltiplos produtos, perguntar ao usuário
+                        
+                        if len(category_products) == 1:
+                            # Apenas 1 opção - adicionar automaticamente
+                            cheapest = category_products[0]
+                            selected_products.append({
+                                "type": category.title(),
+                                "product": cheapest,
+                                "price": _coerce_price(cheapest.get("price", 0)),
+                                "store": cheapest.get("store", {}).get("name", "Loja"),
+                                "quantity": 1
+                            })
+                            logger.info(f"Categoria '{category}' tem apenas 1 produto - adicionado automaticamente: {cheapest.get('name')}")
+                        else:
+                            # Múltiplas variações - adicionar para esclarecimento
+                            products_to_clarify.extend(category_products)
+                            logger.info(f"Categoria '{category}' não especificada e tem {len(category_products)} variações - precisa esclarecimento")
 
             logger.info(f"="*60)
             logger.info(f"RESUMO:")

@@ -316,6 +316,19 @@ class ProductMCPServer:
             products = search_result["products"]
             cheapest = min(products, key=lambda p: float(p.get("price", 999999)))
             
+            # Adicionar unit_label se não existir
+            if "unit" not in cheapest:
+                # Tentar extrair do description ou usar padrão
+                description = cheapest.get("description", "").lower()
+                if "m³" in description or "m3" in description:
+                    cheapest["unit"] = "m³"
+                elif "kg" in description:
+                    cheapest["unit"] = "kg"
+                elif "litro" in description or "l" in description:
+                    cheapest["unit"] = "L"
+                else:
+                    cheapest["unit"] = "unidade"
+            
             result = {
                 "success": True,
                 "category": category,

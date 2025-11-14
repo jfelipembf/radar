@@ -92,46 +92,65 @@ class ChatbotService:
                 "role": "system",
                 "content": """Você é um assistente de vendas de materiais de construção.
 
-Você tem acesso a ferramentas para:
-- search_products: buscar produtos no catálogo
-- get_product_variations: ver variações disponíveis (tipos, tamanhos, etc)
-- get_cheapest_product: encontrar o produto mais barato
-- calculate_best_budget: calcular melhor orçamento agrupando por loja
-- finalize_purchase: finalizar compra (quando usuário escolher opção 1)
+🔧 FERRAMENTAS DISPONÍVEIS:
+- search_products: buscar produtos
+- get_product_variations: ver opções disponíveis
+- get_cheapest_product: adicionar produto mais barato
+- calculate_best_budget: OBRIGATÓRIO para calcular totais por loja
+- finalize_purchase: OBRIGATÓRIO quando usuário digitar "1"
 
-INSTRUÇÕES:
-1. Quando o usuário pedir um produto, use search_products
-2. Se o usuário não especificar tipo/tamanho, use get_product_variations para mostrar opções
-3. Quando o usuário escolher, use get_cheapest_product para adicionar ao orçamento
-4. IMPORTANTE: Mantenha uma lista de todos os produtos adicionados
-5. Ao final, use calculate_best_budget com TODOS os produtos para agrupar por loja
-6. Mostre a loja mais barata e os totais de todas as lojas
-7. Sempre confirme o que foi adicionado
+📋 FLUXO OBRIGATÓRIO:
 
-FORMATO DO ORÇAMENTO FINAL:
-Após adicionar todos os produtos, use calculate_best_budget e mostre:
-- Lista de produtos adicionados
-- Total por loja
-- Loja mais barata destacada
-- Opções: 1️⃣ Finalizar | 2️⃣ Ver detalhes | 3️⃣ Ver todas lojas
+1️⃣ ADICIONAR PRODUTOS:
+   - Use get_cheapest_product para cada produto
+   - Guarde em lista: [{name, price, store, quantity, unit}]
+   - Confirme: "✅ Adicionei [produto] por R$ [preço]"
 
-EXEMPLO:
-Usuário: "preciso de cimento"
-Você: [usa get_product_variations(category="cimento")]
-Resposta: "Temos CP-II, CP-III e CP-V. Qual você prefere?"
+2️⃣ MOSTRAR ORÇAMENTO (quando usuário terminar):
+   - OBRIGATÓRIO: chame calculate_best_budget(products=[...])
+   - Mostre resultado EXATAMENTE como retornado
+   - NÃO calcule nada manualmente
+
+3️⃣ FINALIZAR (quando usuário digitar "1"):
+   - OBRIGATÓRIO: chame finalize_purchase com:
+     * store_name: nome da loja mais barata
+     * products: lista de produtos daquela loja
+     * total: total da loja
+     * customer_id: ID do usuário
+   - Mostre APENAS a mensagem retornada (customer_message)
+
+⚠️ REGRAS CRÍTICAS:
+- NUNCA calcule totais manualmente
+- SEMPRE use calculate_best_budget antes de mostrar orçamento
+- SEMPRE use finalize_purchase quando usuário digitar "1"
+- NÃO invente mensagens de finalização
+- Mostre APENAS o que as ferramentas retornam
+
+EXEMPLO COMPLETO:
+
+Usuário: "preciso de cimento e areia"
+Você: [get_product_variations("cimento")]
+Você: "Temos CP-II, CP-III. Qual prefere?"
 
 Usuário: "CP-II"
-Você: [usa get_cheapest_product(category="cimento", specification="CP-II")]
-Você: [guarda produto na lista]
-Resposta: "✅ Adicionei Cimento CP-II 50kg por R$ 32,00"
+Você: [get_cheapest_product("cimento", "CP-II")]
+Você: "✅ Adicionei Cimento CP-II 50kg - R$ 32,00"
+Você: [get_product_variations("areia")]
+Você: "Qual tipo de areia?"
+
+Usuário: "lavada"
+Você: [get_cheapest_product("areia", "lavada")]
+Você: "✅ Adicionei Areia lavada - R$ 150,00"
 
 Usuário: "pronto"
-Você: [usa calculate_best_budget(products=[...])]
-Resposta: Mostra orçamento completo com totais por loja
+Você: [calculate_best_budget(products=[{cimento}, {areia}])]
+Você: [recebe: stores=[{store:"Loja A", total:182}, {store:"Loja B", total:200}]]
+Você: Mostra resultado formatado com opções 1️⃣ 2️⃣ 3️⃣
 
-Usuário: "1" (finalizar)
-Você: [usa finalize_purchase(store_name="...", products=[...], total=X, customer_id="...")]
-Resposta: Mostra mensagem de confirmação com link WhatsApp
+Usuário: "1"
+Você: [finalize_purchase(store_name="Loja A", products=[...], total=182, customer_id="555...")]
+Você: [recebe: {customer_message: "✅ Compra finalizada...", whatsapp_link: "https://..."}]
+Você: Mostra APENAS customer_message
 """
             }
         ] + history
@@ -207,6 +226,19 @@ Resposta: Mostra mensagem de confirmação com link WhatsApp
                 )
                 
                 logger.info(f"Resultado: {result.get('success', False)}")
+                
+                # Se foi finalize_purchase, enviar mensagem para a loja
+                if tool_name == "finalize_purchase" and result.get("success"):
+                    store_phone = result.get("store_phone")
+                    store_message = result.get("store_message")
+                    
+                    if store_phone and store_message:
+                        try:
+                            logger.info(f"Enviando mensagem para loja: {store_phone}")
+                            await self._send_whatsapp_message(store_phone, store_message)
+                            logger.info("Mensagem enviada para loja com sucesso")
+                        except Exception as exc:
+                            logger.error(f"Erro ao enviar mensagem para loja: {exc}")
                 
                 # Adicionar resultado
                 messages.append({

@@ -121,53 +121,34 @@ async def analyze_product_variations(products: List[Dict[str, Any]], openai_serv
     if not products or len(products) <= 1:
         return {"needs_clarification": False, "variations": {}, "message": ""}
 
-    # Preparar lista de produtos para análise da IA
-    product_descriptions = []
-    for product in products:
-        name = product.get("name", "")
-        description = product.get("description", "")
-        unit_label = product.get("unit_label", "")
-        price = product.get("price", "")
-
-        # Criar descrição completa para análise
-        full_desc = f"Nome: {name}"
-        if description:
-            full_desc += f" | Descrição: {description}"
-        if unit_label:
-            full_desc += f" | Unidade: {unit_label}"
-        if price:
-            full_desc += f" | Preço: {price}"
-
-        product_descriptions.append(full_desc)
-
-    # Prompt para IA analisar variações
+    # Usar IA para categorizar e analisar variações
     prompt = f"""
-Você é um especialista em análise de produtos de construção. Analise a lista abaixo de produtos e determine se há variações significativas que exigiriam esclarecimento do cliente.
+Você é um especialista em análise de produtos de construção. Analise a lista abaixo de produtos e:
+
+1. AGRUPE os produtos por categoria (ex: caixas d'água, cimentos, tintas, massas, etc.)
+2. Para cada categoria com múltiplos produtos, identifique se há VARIAÇÕES SIGNIFICATIVAS
+3. Determine se precisa esclarecer alguma categoria (uma de cada vez, por prioridade)
 
 LISTA DE PRODUTOS:
-{chr(10).join(f"{i+1}. {desc}" for i, desc in enumerate(product_descriptions))}
+{chr(10).join(f"{i+1}. {p.get('name', '')} - {p.get('description', '')}" for i, p in enumerate(products))}
 
-TAREFA:
-1. Identifique se há DIFERENTES TIPOS/VARIAÇÕES do mesmo produto base
-2. Foque em características que fazem diferença no preço ou uso (volume, cor, tipo, marca, qualidade)
-3. Ignore pequenas diferenças irrelevantes (como pequenas variações de preço entre lojas)
+CRITÉRIOS PARA ESCLARECIMENTO (prioridade):
+1. Caixas d'água: volumes (500L, 1000L, 2000L)
+2. Cimentos: tipos (CP-II, CP-III, CP-V)
+3. Tintas/Massas: volumes/tipos (5kg, 10kg, acrílica, epóxi)
+4. Outros: qualquer variação significativa
 
-CRITÉRIOS PARA ESCLARECIMENTO:
-- Variações de VOLUME/CAPACIDADE (ex: 500L vs 1000L vs 2000L)
-- Variações de COR quando relevante (ex: tintas de cores diferentes)
-- Variações de TIPO/QUALIDADE (ex: cimento CP-II vs CP-III vs CP-V)
-- Variações de TAMANHO/DIMENSÃO significativas
-
-RESPONDA APENAS com JSON no formato:
+RESPONDA APENAS com JSON:
 {{
     "needs_clarification": true/false,
-    "clarification_type": "volume|cor|tipo|marca|tamanho|outro",
+    "current_category": "categoria_escolhida",
     "clarification_message": "Mensagem clara perguntando sobre a variação",
+    "category_products": [índices dos produtos da categoria, começando do 0],
     "detected_variations": ["variação1", "variação2", "variação3"]
 }}
 
 Se NÃO precisar esclarecer, retorne:
-{{"needs_clarification": false, "clarification_type": "", "clarification_message": "", "detected_variations": []}}
+{{"needs_clarification": false, "current_category": "", "clarification_message": "", "category_products": [], "detected_variations": []}}
 """
 
     try:
@@ -179,72 +160,31 @@ Se NÃO precisar esclarecer, retorne:
         try:
             analysis = json.loads(result)
         except json.JSONDecodeError:
-            # Fallback se JSON falhar
             logger.warning(f"Falha no parse JSON da análise de variações: {result}")
             return {"needs_clarification": False, "variations": {}, "message": ""}
 
         # Adaptar para o formato esperado
-        return {
-            "needs_clarification": analysis.get("needs_clarification", False),
-            "variations": {analysis.get("clarification_type", "outro"): set(analysis.get("detected_variations", []))},
-            "message": analysis.get("clarification_message", ""),
-            "total_products": len(products)
-        }
+        if analysis.get("needs_clarification"):
+            category_indices = analysis.get("category_products", [])
+            category_products = [products[i] for i in category_indices if i < len(products)]
+
+            return {
+                "needs_clarification": True,
+                "variations": {analysis.get("current_category", "outro"): {
+                    "volumes": [],  # IA determina internamente
+                    "tipos": [],
+                    "products": category_products
+                }},
+                "message": analysis.get("clarification_message", ""),
+                "current_category": analysis.get("current_category", ""),
+                "total_products": len(products)
+            }
+        else:
+            return {"needs_clarification": False, "variations": {}, "message": ""}
 
     except Exception as exc:
         logger.error(f"Erro na análise de variações com IA: {exc}")
         return {"needs_clarification": False, "variations": {}, "message": ""}
-
-
-    # Determinar se precisa esclarecer
-    total_products = len(products)
-    needs_clarification = False
-    clarification_message = ""
-    clarification_types = []
-
-    if total_products > 3:  # Muitos produtos, pode precisar filtrar
-        # Verificar múltiplas variações
-        if len(variations.get("volumes", [])) > 1:
-            clarification_types.append("volumes")
-            needs_clarification = True
-
-        if len(variations.get("tipos", [])) > 1:
-            clarification_types.append("tipos")
-            needs_clarification = True
-
-        if len(variations.get("cores", [])) > 1:
-            clarification_types.append("cores")
-            needs_clarification = True
-
-        # Construir mensagem baseada em múltiplas variações
-        if needs_clarification:
-            message_parts = []
-            if "volumes" in clarification_types:
-                volumes_list = sorted(list(variations["volumes"]))
-                message_parts.append(f"volumes de caixas d'água: {', '.join(volumes_list)}")
-
-            if "tipos" in clarification_types:
-                tipos_list = sorted(list(variations["tipos"]))
-                if "CP-II" in tipos_list or "CP-III" in tipos_list or "CP-V" in tipos_list:
-                    message_parts.append(f"tipos de cimento: {', '.join(tipos_list)}")
-                else:
-                    message_parts.append(f"tipos: {', '.join(tipos_list)}")
-
-            if "cores" in clarification_types:
-                cores_list = sorted(list(variations["cores"]))
-                message_parts.append(f"cores: {', '.join(cores_list)}")
-
-            if len(message_parts) > 1:
-                clarification_message = f"Existem diferentes {', '.join(message_parts[:-1])} e {message_parts[-1]}. Poderia confirmar qual variação você está procurando?"
-            else:
-                clarification_message = f"Existem diferentes {message_parts[0]}. Poderia confirmar qual variação você está procurando?"
-
-    return {
-        "needs_clarification": needs_clarification,
-        "variations": variations,
-        "message": clarification_message,
-        "total_products": total_products
-    }
 
 
 async def detect_product_switch(user_message: str, conversation_history: List[Dict[str, str]], openai_service) -> Dict[str, Any]:

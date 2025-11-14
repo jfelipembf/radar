@@ -232,41 +232,40 @@ class MessageHandler:
 
 
     async def _handle_product_clarification(self, user_id: str, text: str) -> Optional[str]:
-        """Processa esclarecimentos sobre especificações de produtos usando IA."""
+        """Processa esclarecimentos sobre especificações de produtos usando IA - sistema sequencial."""
         state = self.conversation_manager.get_user_state(user_id)
 
         if not state.get("pending_products"):
             return "Estado da conversa expirou. Por favor, faça uma nova busca de produtos."
 
         pending_products = state["pending_products"]
+        current_category = state.get("current_category")
+        clarified_categories = state.get("clarified_categories", [])
 
         # Usar IA para filtrar produtos baseado na resposta completa do usuário
         prompt = f"""
 Você é um especialista em filtrar produtos de construção baseado nas especificações do cliente.
 
-PRODUTOS DISPONÍVEIS:
+CONTEXTO: Estamos esclarecendo especificações da categoria "{current_category}"
+
+PRODUTOS DISPONÍVEIS DA CATEGORIA ATUAL:
 {chr(10).join(f"- {p.get('name', '')}: {p.get('description', '')}" for p in pending_products)}
 
 RESPOSTA DO CLIENTE: "{text}"
 
 TAREFA:
-Analise a resposta do cliente e identifique quais produtos ele quer manter.
-O cliente pode especificar:
-- Volumes (500L, 1000L, 2000L, etc.)
-- Tipos de cimento (CP-II, CP-III, CP-V)
-- Tipos de tinta (acrílica, epóxi, etc.)
-- Cores (branco, azul, etc.)
-- Tamanhos de massa (5kg, 10kg, 25kg)
+Filtre apenas os produtos que correspondem à resposta do cliente para esta categoria.
+Se a resposta não for específica o suficiente, mantenha todos os produtos.
 
 RESPONDA APENAS com JSON:
 {{
-    "filtered_products": [índices dos produtos que devem ser mantidos, começando do 0],
+    "filtered_indices": [índices dos produtos que devem ser mantidos, começando do 0],
     "clarification_message": "Mensagem confirmando o filtro aplicado",
     "reasoning": "breve explicação das especificações identificadas"
 }}
 
-Exemplo: Cliente diz "500L e CP-III"
-{{"filtered_products": [0, 5, 10], "clarification_message": "Perfeito! Filtrando caixas de 500L e cimento CP-III:", "reasoning": "volume 500L + tipo CP-III"}}
+Exemplo para caixas d'água: Cliente diz "500L"
+{{"filtered_products": [0, 1], "clarification_message": "Perfeito! Selecionando caixas de 500L.", "reasoning": "volume 500L"}}
 """
 
         try:
@@ -278,39 +277,69 @@ Exemplo: Cliente diz "500L e CP-III"
             clarification_message = result.get("clarification_message", f"Filtrando baseado em: {text}")
             reasoning = result.get("reasoning", "")
 
-            # Aplicar filtro
+            # Aplicar filtro apenas na categoria atual (IA já identificou quais produtos pertencem à categoria)
             if filtered_indices:
-                filtered_products = [pending_products[i] for i in filtered_indices if i < len(pending_products)]
+                filtered_products_list = [pending_products[i] for i in filtered_indices if i < len(pending_products)]
             else:
-                # Fallback: manter todos se não conseguiu filtrar
-                filtered_products = pending_products
-                clarification_message = f"Interpretei suas especificações, mas mantive todas as opções disponíveis."
+                # Se não conseguiu filtrar, manter todos os produtos (IA decidirá depois)
+                filtered_products_list = pending_products
+                clarification_message = f"Interpretei suas especificações para {current_category.replace('_', ' ')}."
 
-            logger.info(f"Filtragem IA: {reasoning} - {len(filtered_products)} produtos mantidos")
+            # Substituir produtos da categoria atual pelos filtrados
+            # Manter produtos de outras categorias + adicionar produtos filtrados da categoria atual
+            updated_pending_products = filtered_products_list
+
+            # Adicionar categoria atual às esclarecidas
+            updated_clarified_categories = clarified_categories + [current_category]
+
+            # Verificar se ainda há categorias que precisam esclarecimento
+            remaining_analysis = await analyze_product_variations(updated_pending_products, self.chatbot_service.openai_service)
+
+            if remaining_analysis["needs_clarification"]:
+                # Ainda há mais categorias para esclarecer
+                next_category = remaining_analysis.get("current_category")
+                self.conversation_manager.update_user_state(user_id, {
+                    "pending_products": updated_pending_products,
+                    "awaiting_clarification": True,
+                    "clarified_categories": updated_clarified_categories,
+                    "current_category": next_category,
+                })
+
+                return f"{clarification_message}\n\n{remaining_analysis['message']}"
+            else:
+                # Todas as categorias esclarecidas - mostrar orçamento final
+                self.conversation_manager.update_user_state(user_id, {
+                    "awaiting_clarification": False,
+                    "pending_products": None,
+                    "clarified_categories": None,
+                    "current_category": None
+                })
+
+                # Salvar produtos finais como estado normal
+                await self.chatbot_service.product_service._save_conversation_state_for_products(user_id, updated_pending_products)
+
+                # Formatar catálogo com produtos finais
+                model_context, user_message = format_product_catalog(updated_pending_products, self.chatbot_service.supabase_service)
+
+                # Combinar mensagem de confirmação com catálogo
+                final_message = f"{clarification_message}\n\n{user_message}"
+
+                return final_message
 
         except Exception as exc:
-            logger.warning(f"Erro na filtragem com IA: {exc}")
-            # Fallback: manter todos
-            filtered_products = pending_products
-            clarification_message = f"Processando suas especificações..."
+            logger.warning(f"Erro na filtragem sequencial com IA: {exc}")
+            # Fallback: manter todos e continuar
+            self.conversation_manager.update_user_state(user_id, {
+                "awaiting_clarification": False,
+                "pending_products": None,
+                "clarified_categories": None,
+                "current_category": None
+            })
 
-        # Limpar estado de esclarecimento e processar produtos filtrados
-        self.conversation_manager.update_user_state(user_id, {
-            "awaiting_clarification": False,
-            "pending_products": None,
-            "clarification_type": None
-        })
+            await self.product_service._save_conversation_state_for_products(user_id, pending_products)
+            model_context, user_message = format_product_catalog(pending_products, self.chatbot_service.supabase_service)
 
-        # Salvar produtos filtrados como estado normal
-        await self.chatbot_service.product_service._save_conversation_state_for_products(user_id, filtered_products)
-
-        # Formatar catálogo com produtos filtrados
-        model_context, user_message = format_product_catalog(filtered_products, self.chatbot_service.supabase_service)
-
-        # Combinar mensagem de confirmação com catálogo
-        final_message = clarification_message + "\n\n" + (user_message or "Nenhum produto encontrado.")
-
-        return final_message
+            return f"Processando suas especificações...\n\n{user_message}"
 
 
 class ProductService:
@@ -380,7 +409,8 @@ class ProductService:
                 self.conversation_manager.update_user_state(user_id, {
                     "pending_products": filtered_products,
                     "awaiting_clarification": True,
-                    "clarification_types": list(variation_analysis["variations"].keys())  # Todas as variações
+                    "clarified_categories": [],  # Lista de categorias já esclarecidas
+                    "current_category": variation_analysis.get("current_category"),  # Categoria atual sendo esclarecida
                 })
 
                 # Retornar mensagem de esclarecimento

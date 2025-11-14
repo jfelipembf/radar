@@ -9,6 +9,7 @@ from app.business.construction_rules import (
     extract_product_names,
     format_product_catalog,
     analyze_product_variations,
+    detect_product_switch,
 )
 from app.business.message_templates import (
     format_purchase_summary,
@@ -74,6 +75,19 @@ class MessageHandler:
             return None
 
         state = self.conversation_manager.get_user_state(user_id)
+
+        # DETECTAR SE USUÁRIO ESTÁ TENTANDO MUDAR PARA OUTRO PRODUTO
+        try:
+            history = await self.chatbot_service._build_message_history(user_id)
+            product_switch = await detect_product_switch(text, history, self.chatbot_service.openai_service)
+
+            if product_switch["is_switching"]:
+                logger.info(f"Usuário {user_id} mudando para produto: {product_switch['target_product']}")
+                # Limpar estado atual para permitir processamento normal da nova mensagem
+                self.conversation_manager.clear_user_state(user_id)
+                return None  # Permite que o fluxo normal processe a mensagem como nova
+        except Exception as exc:
+            logger.warning(f"Erro ao detectar troca de produto: {exc}")
 
         # Verificar se está aguardando esclarecimento sobre produtos
         if state.get("awaiting_clarification"):

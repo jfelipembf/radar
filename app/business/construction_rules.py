@@ -86,6 +86,81 @@ Quais produtos de construção são mencionados?
         return []
 
 
+async def extract_product_specifications(message: str, product_names: List[str], openai_service: "OpenAIService") -> Dict[str, Optional[str]]:
+    """Extrai especificações de produtos mencionados na mensagem usando IA.
+    
+    Args:
+        message: Mensagem do usuário
+        product_names: Lista de produtos identificados
+        openai_service: Serviço OpenAI
+        
+    Returns:
+        Dict com produto como chave e especificação como valor
+        Exemplo: {"caixa d'água": "1000L", "cimento": "CP-II", "areia": "lavada"}
+    """
+    if not openai_service or not product_names:
+        return {}
+
+    products_list = ", ".join(product_names)
+    
+    prompt = f"""
+Você é um assistente especializado em identificar especificações de produtos de construção.
+
+Analise a mensagem do usuário e identifique se há ESPECIFICAÇÕES TÉCNICAS mencionadas para cada produto.
+
+PRODUTOS IDENTIFICADOS: {products_list}
+
+MENSAGEM: "{message}"
+
+TAREFA:
+Para cada produto, identifique se o usuário especificou:
+- Capacidade/Volume (ex: 1000L, 500L, 2000L)
+- Tipo/Modelo (ex: CP-II, CP-III, CP-V)
+- Característica (ex: lavada, grossa, fina)
+- Tamanho/Dimensão (ex: 50kg, 20kg, 6mm, 8mm)
+- Qualquer outra especificação técnica relevante
+
+IMPORTANTE:
+- Se o usuário NÃO especificou algo para um produto, retorne "null" para ele
+- Normalize as especificações (ex: "mil litros" → "1000L", "cp 2" → "CP-II")
+- Seja preciso e extraia exatamente o que foi mencionado
+
+RESPONDA APENAS com JSON no formato:
+{{
+  "produto1": "especificação" ou null,
+  "produto2": "especificação" ou null
+}}
+
+EXEMPLOS:
+
+Mensagem: "preciso de caixa dagua de mil litros e cimento"
+Produtos: ["caixa d'água", "cimento"]
+Resposta: {{"caixa d'água": "1000L", "cimento": null}}
+
+Mensagem: "quero cimento cp-ii 50kg e areia lavada"
+Produtos: ["cimento", "areia"]
+Resposta: {{"cimento": "CP-II 50kg", "areia": "lavada"}}
+
+Mensagem: "preciso de tijolo e argamassa"
+Produtos: ["tijolo", "argamassa"]
+Resposta: {{"tijolo": null, "argamassa": null}}
+""".strip()
+
+    try:
+        response = await openai_service.generate_response(message=prompt)
+        result = response.strip()
+        
+        # Parse JSON
+        import json
+        specifications = json.loads(result)
+        
+        # Filtrar apenas especificações não-null
+        return {k: v for k, v in specifications.items() if v is not None}
+    except Exception as exc:
+        logger.warning(f"Erro ao extrair especificações: {exc}")
+        return {}
+
+
 def format_product_catalog(products: List[dict], supabase_service: "SupabaseService") -> tuple[Optional[str], Optional[str]]:
     """Formata catálogo de produtos para exibição com opções interativas."""
     instruction_lines: List[str] = [
@@ -220,6 +295,7 @@ Se NÃO HÁ NENHUMA variação significativa a esclarecer, retorne:
 __all__ = [
     "should_search_products",
     "extract_product_names",
+    "extract_product_specifications",
     "format_product_catalog",
     "analyze_product_variations",
 ]

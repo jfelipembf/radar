@@ -109,8 +109,16 @@ class SupabaseService:
         segment: Optional[str] = None,
         search_terms: Optional[List[str]] = None,
         limit: int = 50,
+        exact_filters: Optional[Dict[str, str]] = None,
     ) -> List[Dict[str, Any]]:
-        """Busca produtos cadastrados, opcionalmente filtrando por segmento e termos."""
+        """Busca produtos cadastrados, opcionalmente filtrando por segmento e termos.
+        
+        Args:
+            segment: Segmento do produto (ex: 'material_construcao')
+            search_terms: Termos de busca genéricos
+            limit: Limite de resultados
+            exact_filters: Filtros exatos para aplicar (ex: {'capacity': '1000L', 'type': 'CP-II'})
+        """
 
         params: Dict[str, Any] = {
             "select": "id,segment,sector,name,description,brand,unit_label,price,updated_at,delivery_info,store_phone,store:stores(name,phone)",
@@ -124,13 +132,39 @@ class SupabaseService:
         # Se há termos de busca, fazer busca sem filtro e filtrar depois
         if search_terms:
             # Buscar todos os produtos do segmento e filtrar em Python
-            all_products = self._get_products_by_segment(segment, limit * 2)  # Buscar mais para ter margem
+            all_products = self._get_products_by_segment(segment, limit * 3)  # Buscar mais para ter margem
             filtered_products = []
 
             for product in all_products:
                 product_name = product.get("name", "").lower()
-                if any(term.lower() in product_name for term in search_terms):
-                    filtered_products.append(product)
+                product_desc = product.get("description", "").lower()
+                
+                # Verificar se algum termo de busca está no nome ou descrição
+                matches_search = any(term.lower() in product_name or term.lower() in product_desc for term in search_terms)
+                
+                if matches_search:
+                    # Se há filtros exatos, aplicar
+                    if exact_filters:
+                        matches_filters = True
+                        for filter_key, filter_value in exact_filters.items():
+                            filter_value_lower = filter_value.lower()
+                            # Verificar se o filtro está no nome ou descrição
+                            if filter_value_lower not in product_name and filter_value_lower not in product_desc:
+                                matches_filters = False
+                                break
+                        
+                        if matches_filters:
+                            filtered_products.append(product)
+                    else:
+                        filtered_products.append(product)
+
+            logger.debug(
+                "Supabase → filtrados %d produtos de %d (termos=%s, filtros=%s)",
+                len(filtered_products),
+                len(all_products),
+                search_terms,
+                exact_filters,
+            )
 
             # Limitar resultado
             return filtered_products[:limit]

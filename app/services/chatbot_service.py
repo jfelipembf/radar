@@ -403,11 +403,13 @@ class ProductService:
                 return None
 
             # ANALISAR VARIAÇÕES - IA determina se precisa esclarecer
+            logger.info(f"Analisando variações para {len(filtered_products)} produtos")
             variation_analysis = await analyze_product_variations(
-                filtered_products, 
+                filtered_products,
                 self.chatbot_service.openai_service,
                 conversation_history=await self.chatbot_service._build_message_history(user_id)
             )
+            logger.info(f"Análise de variações concluída: needs_clarification={variation_analysis.get('needs_clarification')}")
 
             if variation_analysis["needs_clarification"]:
                 logger.info("Catálogo → Variações detectadas, solicitando esclarecimento")

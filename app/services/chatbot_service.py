@@ -558,7 +558,11 @@ class ChatbotService:
     async def _update_presence(self, user_id: str, presence: str, delay_ms: Optional[int] = None):
         """Atualiza a presença do usuário no WhatsApp."""
         try:
-            await asyncio.to_thread(self.evolution_service.send_presence, user_id, presence, delay_ms)
+            result = await asyncio.to_thread(self.evolution_service.send_presence, user_id, presence, delay_ms)
+            if result is None:
+                logger.debug("Presence update skipped (timeout) for %s", user_id)
+            else:
+                logger.debug("Presence updated successfully for %s", user_id)
         except Exception as exc:
             logger.error("Erro ao atualizar presença para %s: %s", user_id, exc)
 

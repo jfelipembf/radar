@@ -60,9 +60,10 @@ class EvolutionService:
             "delay": delay_ms if delay_ms is not None else 0,  # API requires delay parameter
         }
 
-        logger.info("Evolution → ajustando presença de %s para %s", number, presence)
+        logger.info("Evolution → ajustando presença de %s para %s (delay: %s)", number, presence, delay_ms)
         try:
-            response = requests.post(url, headers=headers, json=payload, timeout=10)
+            # Timeout mais curto para evitar travamentos
+            response = requests.post(url, headers=headers, json=payload, timeout=5)
             logger.info(
                 "Evolution presença → status=%s body=%s",
                 response.status_code,
@@ -70,9 +71,12 @@ class EvolutionService:
             )
             response.raise_for_status()
             return response
+        except requests.exceptions.Timeout:
+            logger.warning("Evolution → timeout ao ajustar presença (API lenta, mas funcional)")
+            return None  # Não falha o sistema por timeout
         except Exception as exc:  # noqa: BLE001
             logger.exception("Erro ao ajustar presença na Evolution: %s", exc)
-            raise
+            return None  # Não falha o sistema por erro de presença
 
 
 __all__ = ["EvolutionService"]

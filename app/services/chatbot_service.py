@@ -66,6 +66,9 @@ class ChatbotService:
         # Registrar mensagem temporária
         await self._record_temp_message(user_id, text, message_data)
 
+        # Enviar status "composing" para indicar que está processando
+        await self._update_presence(user_id, "composing")
+
         # Agendar processamento (debounced)
         await self._schedule_user_processing(user_id)
 

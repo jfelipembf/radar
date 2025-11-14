@@ -273,8 +273,8 @@ class ChatbotService:
             logger.error("Erro ao salvar mensagem no Supabase: %s", exc)
 
     async def _update_presence(self, user_id: str, presence: str, delay_ms: Optional[int] = None):
-        """Atualiza presença do WhatsApp."""
+        """Atualiza a presença do usuário no WhatsApp."""
         try:
             await asyncio.to_thread(self.evolution_service.send_presence, user_id, presence, delay_ms)
         except Exception as exc:
-            logger.error("Erro ao atualizar presença (%s) para %s: %s", presence, user_id, exc)
+            logger.error("Erro ao atualizar presença para %s: %s", user_id, exc)

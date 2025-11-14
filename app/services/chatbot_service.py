@@ -16,6 +16,7 @@ from app.business.message_templates import (
     format_all_stores_details,
     get_menu_options,
 )
+from app.utils.formatters import _coerce_price, _format_currency, _format_date, _format_phone, _parse_created_at
 from app.services.openai_service import OpenAIService
 from app.services.supabase_service import SupabaseService
 from app.services.evolution_service import EvolutionService

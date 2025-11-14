@@ -12,7 +12,8 @@ from app.business.construction_rules import (
 from app.services.openai_service import OpenAIService
 from app.services.supabase_service import SupabaseService
 from app.services.evolution_service import EvolutionService
-from app.utils.parsers import _consolidate_temp_messages, _latest_user_content, _sort_key
+from app.utils.parsers import _consolidate_temp_messages, _latest_user_content
+from app.utils.formatters import _sort_key
 
 logger = logging.getLogger(__name__)
 

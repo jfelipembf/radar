@@ -7,8 +7,6 @@ if TYPE_CHECKING:
     from app.services.supabase_service import SupabaseService
 
 from app.business.message_templates import format_interactive_catalog
-from app.utils.formatters import _coerce_price, _format_currency, _format_date, _format_phone, _parse_created_at
-from app.utils.parsers import _extract_search_terms
 
 
 async def should_search_products(message: str, openai_service: "OpenAIService") -> bool:
@@ -114,84 +112,133 @@ def format_product_catalog(products: List[dict], supabase_service: "SupabaseServ
 
 
 async def analyze_product_variations(products: List[Dict[str, Any]], openai_service) -> Dict[str, Any]:
-    """Analisa variações dos produtos encontrados e determina se precisa esclarecer."""
+    """Analisa variações dos produtos encontrados usando IA para detectar padrões dinamicamente."""
 
-    if not products:
+    if not products or len(products) <= 1:
         return {"needs_clarification": False, "variations": {}, "message": ""}
 
-    # Extrair características dos produtos
-    variations = {
-        "volumes": set(),
-        "cores": set(),
-        "marcas": set(),
-        "tipos": set()
-    }
-
+    # Preparar lista de produtos para análise da IA
+    product_descriptions = []
     for product in products:
-        name = product.get("name", "").lower()
+        name = product.get("name", "")
+        description = product.get("description", "")
+        unit_label = product.get("unit_label", "")
+        price = product.get("price", "")
 
-        # Extrair volume (L, kg, m³, etc.)
-        if "l" in name and any(char.isdigit() for char in name):
-            import re
-            volume_match = re.search(r'(\d+)\s*l', name)
-            if volume_match:
-                variations["volumes"].add(f"{volume_match.group(1)}L")
+        # Criar descrição completa para análise
+        full_desc = f"Nome: {name}"
+        if description:
+            full_desc += f" | Descrição: {description}"
+        if unit_label:
+            full_desc += f" | Unidade: {unit_label}"
+        if price:
+            full_desc += f" | Preço: {price}"
 
-        # Extrair cores
-        cores = ["branco", "preto", "azul", "vermelho", "verde", "amarelo", "marrom", "cinza"]
-        for cor in cores:
-            if cor in name:
-                variations["cores"].add(cor.title())
+        product_descriptions.append(full_desc)
 
-        # Extrair marcas do campo description ou name
-        description = product.get("description", "").lower()
-        marcas_conhecidas = ["fortlev", "cimbrasil", "azulfort", "brancolar", "verdemax", "epoxipro", "tintacor"]
-        for marca in marcas_conhecidas:
-            if marca in description or marca in name:
-                variations["marcas"].add(marca.title())
+    # Prompt para IA analisar variações
+    prompt = f"""
+Você é um especialista em análise de produtos de construção. Analise a lista abaixo de produtos e determine se há variações significativas que exigiriam esclarecimento do cliente.
 
-        # Tipos especiais
-        if "cp-ii" in name.lower():
-            variations["tipos"].add("CP-II")
-        elif "cp-iii" in name.lower():
-            variations["tipos"].add("CP-III")
-        elif "cp-v" in name.lower():
-            variations["tipos"].add("CP-V")
-        elif "epóxi" in name.lower() or "epoxi" in name.lower():
-            variations["tipos"].add("Epóxi")
-        elif "acrílica" in name.lower() or "acrilica" in name.lower():
-            variations["tipos"].add("Acrílica")
+LISTA DE PRODUTOS:
+{chr(10).join(f"{i+1}. {desc}" for i, desc in enumerate(product_descriptions))}
 
-    # Limpar variações vazias
-    variations = {k: v for k, v in variations.items() if v}
+TAREFA:
+1. Identifique se há DIFERENTES TIPOS/VARIAÇÕES do mesmo produto base
+2. Foque em características que fazem diferença no preço ou uso (volume, cor, tipo, marca, qualidade)
+3. Ignore pequenas diferenças irrelevantes (como pequenas variações de preço entre lojas)
 
-    # Determinar se precisa esclarecer
-    total_products = len(products)
-    needs_clarification = False
-    clarification_message = ""
+CRITÉRIOS PARA ESCLARECIMENTO:
+- Variações de VOLUME/CAPACIDADE (ex: 500L vs 1000L vs 2000L)
+- Variações de COR quando relevante (ex: tintas de cores diferentes)
+- Variações de TIPO/QUALIDADE (ex: cimento CP-II vs CP-III vs CP-V)
+- Variações de TAMANHO/DIMENSÃO significativas
 
-    if total_products > 3:  # Muitos produtos, pode precisar filtrar
-        if len(variations.get("volumes", [])) > 1:
-            needs_clarification = True
-            volumes_list = sorted(list(variations["volumes"]))
-            clarification_message = f"Encontrei caixas d'água em {len(volumes_list)} volumes diferentes: {', '.join(volumes_list)}. Qual volume você precisa?"
+RESPONDA APENAS com JSON no formato:
+{{
+    "needs_clarification": true/false,
+    "clarification_type": "volume|cor|tipo|marca|tamanho|outro",
+    "clarification_message": "Mensagem clara perguntando sobre a variação",
+    "detected_variations": ["variação1", "variação2", "variação3"]
+}}
 
-        elif len(variations.get("cores", [])) > 1:
-            needs_clarification = True
-            cores_list = sorted(list(variations["cores"]))
-            clarification_message = f"Encontrei tintas em {len(cores_list)} cores: {', '.join(cores_list)}. Qual cor você prefere?"
+Se NÃO precisar esclarecer, retorne:
+{{"needs_clarification": false, "clarification_type": "", "clarification_message": "", "detected_variations": []}}
+"""
 
-        elif len(variations.get("tipos", [])) > 1:
-            needs_clarification = True
-            tipos_list = sorted(list(variations["tipos"]))
-            clarification_message = f"Encontrei cimentos em {len(tipos_list)} tipos: {', '.join(tipos_list)}. Qual tipo você precisa?"
+    try:
+        response = await openai_service.generate_response(message=prompt)
+        result = response.strip()
 
-    return {
-        "needs_clarification": needs_clarification,
-        "variations": variations,
-        "message": clarification_message,
-        "total_products": total_products
-    }
+        # Tentar fazer parse do JSON
+        import json
+        try:
+            analysis = json.loads(result)
+        except json.JSONDecodeError:
+            # Fallback se JSON falhar
+            logger.warning(f"Falha no parse JSON da análise de variações: {result}")
+            return {"needs_clarification": False, "variations": {}, "message": ""}
+
+        # Adaptar para o formato esperado
+        return {
+            "needs_clarification": analysis.get("needs_clarification", False),
+            "variations": {analysis.get("clarification_type", "outro"): set(analysis.get("detected_variations", []))},
+            "message": analysis.get("clarification_message", ""),
+            "total_products": len(products)
+        }
+
+    except Exception as exc:
+        logger.error(f"Erro na análise de variações com IA: {exc}")
+        return {"needs_clarification": False, "variations": {}, "message": ""}
+
+
+async def detect_product_switch(user_message: str, conversation_history: List[Dict[str, str]], openai_service) -> Dict[str, Any]:
+    """Detecta se o usuário está mudando para outro produto mencionado anteriormente usando IA."""
+
+    if not conversation_history:
+        return {"is_switching": False, "target_product": None}
+
+    # Usar IA para analisar a conversa e detectar produtos mencionados
+    prompt = f"""
+Analise o histórico da conversa abaixo e determine se o usuário está mudando para outro produto que foi mencionado anteriormente.
+
+HISTÓRICO DA CONVERSA:
+{chr(10).join(f"{'Usuário' if msg.get('role') == 'user' else 'Assistente'}: {msg.get('content', '')}" for msg in conversation_history[-10:])}
+
+MENSAGEM ATUAL DO USUÁRIO: "{user_message}"
+
+TAREFA:
+1. Identifique todos os produtos de construção mencionados no histórico
+2. Determine se a mensagem atual está se referindo a um produto mencionado anteriormente
+3. Se SIM, retorne o nome do produto que o usuário quer discutir agora
+
+PRODUTOS DE CONSTRUÇÃO comuns incluem: tintas, cimentos, vernizes, argamassas, tijolos, britas, areias, caixas d'água, etc.
+
+RESPONDA APENAS com JSON:
+{{
+    "is_switching": true/false,
+    "target_product": "nome do produto mencionado anteriormente" ou null,
+    "reasoning": "breve explicação da decisão"
+}}
+
+Se não está mudando de produto, retorne:
+{{"is_switching": false, "target_product": null, "reasoning": "explicação"}}
+"""
+
+    try:
+        response = await openai_service.generate_response(message=prompt)
+        import json
+        result = json.loads(response.strip())
+
+        return {
+            "is_switching": result.get("is_switching", False),
+            "target_product": result.get("target_product"),
+            "reasoning": result.get("reasoning", "")
+        }
+
+    except Exception as exc:
+        logger.warning(f"Erro na detecção de troca de produto: {exc}")
+        return {"is_switching": False, "target_product": None}
 
 
 __all__ = [
@@ -199,4 +246,5 @@ __all__ = [
     "extract_product_names",
     "format_product_catalog",
     "analyze_product_variations",
+    "detect_product_switch",
 ]

@@ -302,41 +302,46 @@ class ChatbotService:
         """Salva estado da conversa com dados dos produtos para opções interativas."""
         from collections import defaultdict
 
-        # Agrupar produtos por nome e calcular totais por loja
-        grouped_products = defaultdict(list)
+        # Agrupar produtos por loja
+        store_totals = defaultdict(lambda: {"products": defaultdict(dict), "total": 0.0, "store_info": {}})
+
         for product in products:
-            name = product.get("name", "").strip()
-            if name:
-                grouped_products[name].append(product)
+            store_info = product.get("store", {})
+            store_name = store_info.get("name", "Loja")
+            store_phone = _format_phone(product.get("store_phone") or store_info.get("phone"))
 
-        store_totals = defaultdict(lambda: {"products": [], "total": 0.0, "store_info": {}})
-
-        for product_name, product_list in grouped_products.items():
-            # Pegar o produto mais barato para cada nome
-            valid_products = [p for p in product_list if _coerce_price(p.get("price")) > 0]
-            if not valid_products:
+            product_name = product.get("name", "").strip()
+            if not product_name:
                 continue
 
-            cheapest_product = min(valid_products, key=lambda p: _coerce_price(p.get("price")))
+            price_value = _coerce_price(product.get("price"))
+            if price_value <= 0:
+                continue
 
-            store_info = cheapest_product.get("store", {})
-            store_name = store_info.get("name", "Loja")
-            store_phone = _format_phone(cheapest_product.get("store_phone") or store_info.get("phone"))
+            unit_label = product.get("unit_label", "unidade")
 
-            price_value = _coerce_price(cheapest_product.get("price"))
-            unit_label = cheapest_product.get("unit_label", "unidade")
+            # Se já temos este produto nesta loja, manter o mais barato
+            if product_name not in store_totals[store_name]["products"] or \
+               price_value < store_totals[store_name]["products"][product_name]["price"]:
+                store_totals[store_name]["products"][product_name] = {
+                    "name": product_name,
+                    "price": price_value,
+                    "price_str": _format_currency(price_value),
+                    "unit_label": unit_label
+                }
 
-            store_totals[store_name]["products"].append({
-                "name": product_name,
-                "price": price_value,
-                "price_str": _format_currency(price_value),
-                "unit_label": unit_label
-            })
-            store_totals[store_name]["total"] += price_value
+            # Atualizar informações da loja
             store_totals[store_name]["store_info"] = {
                 "name": store_name,
                 "phone": store_phone
             }
+
+        # Calcular totais e converter para lista
+        for store_name, store_data in store_totals.items():
+            # Converter defaultdict para lista e calcular total
+            products_list = list(store_data["products"].values())
+            store_data["products"] = products_list
+            store_data["total"] = sum(p["price"] for p in products_list)
 
         # Salvar estado da conversa
         self.conversation_state[user_id] = {

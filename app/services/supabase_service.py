@@ -121,16 +121,19 @@ class SupabaseService:
         if segment:
             params["segment"] = f"eq.{segment}"
 
-        # Se há termos de busca, adicionar filtro OR para cada termo
+        # Se há termos de busca, fazer busca sem filtro e filtrar depois
         if search_terms:
-            # Criar filtro OR para buscar produtos que contenham qualquer um dos termos
-            or_conditions = []
-            for term in search_terms:
-                # Usar ilike para busca case-insensitive
-                or_conditions.append(f"name.ilike.%{term}%")
+            # Buscar todos os produtos do segmento e filtrar em Python
+            all_products = self._get_products_by_segment(segment, limit * 2)  # Buscar mais para ter margem
+            filtered_products = []
 
-            if or_conditions:
-                params["or"] = f"({','.join(or_conditions)})"
+            for product in all_products:
+                product_name = product.get("name", "").lower()
+                if any(term.lower() in product_name for term in search_terms):
+                    filtered_products.append(product)
+
+            # Limitar resultado
+            return filtered_products[:limit]
 
         url = f"{self._rest_base}/products"
         logger.debug(
@@ -141,6 +144,25 @@ class SupabaseService:
         response = requests.get(url, headers=self._headers, params=params, timeout=10)
         if not response.ok:
             logger.error("Supabase → erro ao buscar produtos: %s", response.text)
+            response.raise_for_status()
+        return response.json()
+
+    def _get_products_by_segment(self, segment: Optional[str], limit: int) -> List[Dict[str, Any]]:
+        """Busca produtos por segmento (método auxiliar)."""
+        params: Dict[str, Any] = {
+            "select": "id,segment,sector,name,description,brand,unit_label,price,updated_at,delivery_info,store_phone,store:stores(name,phone)",
+            "order": "name.asc",
+            "limit": str(limit),
+        }
+
+        if segment:
+            params["segment"] = f"eq.{segment}"
+
+        url = f"{self._rest_base}/products"
+        logger.debug("Supabase → buscando produtos por segmento: %s", segment)
+        response = requests.get(url, headers=self._headers, params=params, timeout=10)
+        if not response.ok:
+            logger.error("Supabase → erro ao buscar produtos por segmento: %s", response.text)
             response.raise_for_status()
         return response.json()
 

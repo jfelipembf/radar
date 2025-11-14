@@ -57,9 +57,8 @@ class EvolutionService:
         payload = {
             "number": number,
             "presence": presence,
+            "delay": delay_ms if delay_ms is not None else 0,  # API requires delay parameter
         }
-        if delay_ms is not None:
-            payload["delay"] = delay_ms
 
         logger.info("Evolution → ajustando presença de %s para %s", number, presence)
         try:

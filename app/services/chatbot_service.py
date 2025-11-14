@@ -232,80 +232,67 @@ class MessageHandler:
 
 
     async def _handle_product_clarification(self, user_id: str, text: str) -> Optional[str]:
-        """Processa esclarecimentos sobre especificações de produtos."""
+        """Processa esclarecimentos sobre especificações de produtos usando IA."""
         state = self.conversation_manager.get_user_state(user_id)
 
         if not state.get("pending_products"):
             return "Estado da conversa expirou. Por favor, faça uma nova busca de produtos."
 
         pending_products = state["pending_products"]
-        clarification_type = state.get("clarification_type", "")
 
-        # Filtrar produtos baseado na resposta
-        filtered_products = []
-        text_lower = text.lower().strip()
+        # Usar IA para filtrar produtos baseado na resposta completa do usuário
+        prompt = f"""
+Você é um especialista em filtrar produtos de construção baseado nas especificações do cliente.
 
-        if clarification_type == "volumes":
-            # Procurar por volume específico (ex: "1000", "1000L", "1.000L")
-            for product in pending_products:
-                product_name = product.get("name", "").lower()
-                if any(volume in text_lower for volume in ["500", "1000", "2000"]) and any(volume in product_name for volume in ["500", "1000", "2000"]):
-                    if ("500" in text_lower and "500" in product_name) or \
-                       ("1000" in text_lower and "1000" in product_name) or \
-                       ("2000" in text_lower and "2000" in product_name):
-                        filtered_products.append(product)
+PRODUTOS DISPONÍVEIS:
+{chr(10).join(f"- {p.get('name', '')}: {p.get('description', '')}" for p in pending_products)}
 
-        elif clarification_type == "cores":
-            # Procurar por cor específica
-            cores_map = {
-                "branco": ["branco", "branca"],
-                "azul": ["azul"],
-                "verde": ["verde"],
-                "vermelho": ["vermelho", "vermelha"],
-                "amarelo": ["amarelo", "amarela"],
-                "preto": ["preto", "preta"]
-            }
+RESPOSTA DO CLIENTE: "{text}"
 
-            for cor_padrao, variacoes in cores_map.items():
-                if cor_padrao in text_lower or any(var in text_lower for var in variacoes):
-                    for product in pending_products:
-                        product_name = product.get("name", "").lower()
-                        if any(var in product_name for var in variacoes):
-                            filtered_products.append(product)
-                    break
+TAREFA:
+Analise a resposta do cliente e identifique quais produtos ele quer manter.
+O cliente pode especificar:
+- Volumes (500L, 1000L, 2000L, etc.)
+- Tipos de cimento (CP-II, CP-III, CP-V)
+- Tipos de tinta (acrílica, epóxi, etc.)
+- Cores (branco, azul, etc.)
+- Tamanhos de massa (5kg, 10kg, 25kg)
 
-        elif clarification_type == "tipos":
-            # Procurar por tipo específico
-            tipos_map = {
-                "cp-ii": ["cp-ii", "cp2"],
-                "cp-iii": ["cp-iii", "cp3"],
-                "cp-v": ["cp-v", "cp5"],
-                "epóxi": ["epóxi", "epoxi"],
-                "acrílica": ["acrílica", "acrilica"]
-            }
+RESPONDA APENAS com JSON:
+{{
+    "filtered_products": [índices dos produtos que devem ser mantidos, começando do 0],
+    "clarification_message": "Mensagem confirmando o filtro aplicado",
+    "reasoning": "breve explicação das especificações identificadas"
+}}
 
-            for tipo_padrao, variacoes in tipos_map.items():
-                if tipo_padrao in text_lower or any(var in text_lower for var in variacoes):
-                    for product in pending_products:
-                        product_name = product.get("name", "").lower()
-                        if any(var in product_name for var in variacoes):
-                            filtered_products.append(product)
-                    break
+Exemplo: Cliente diz "500L e CP-III"
+{{"filtered_products": [0, 5, 10], "clarification_message": "Perfeito! Filtrando caixas de 500L e cimento CP-III:", "reasoning": "volume 500L + tipo CP-III"}}
+"""
 
-        # Se não conseguiu filtrar, tentar uma abordagem mais simples
-        if not filtered_products:
-            # Procurar por qualquer correspondência no nome do produto
-            for product in pending_products:
-                product_name = product.get("name", "").lower()
-                if text_lower in product_name:
-                    filtered_products.append(product)
+        try:
+            response = await self.chatbot_service.openai_service.generate_response(message=prompt)
+            import json
+            result = json.loads(response.strip())
 
-        # Se ainda não conseguiu filtrar, manter todos e informar
-        if not filtered_products:
+            filtered_indices = result.get("filtered_products", [])
+            clarification_message = result.get("clarification_message", f"Filtrando baseado em: {text}")
+            reasoning = result.get("reasoning", "")
+
+            # Aplicar filtro
+            if filtered_indices:
+                filtered_products = [pending_products[i] for i in filtered_indices if i < len(pending_products)]
+            else:
+                # Fallback: manter todos se não conseguiu filtrar
+                filtered_products = pending_products
+                clarification_message = f"Interpretei suas especificações, mas mantive todas as opções disponíveis."
+
+            logger.info(f"Filtragem IA: {reasoning} - {len(filtered_products)} produtos mantidos")
+
+        except Exception as exc:
+            logger.warning(f"Erro na filtragem com IA: {exc}")
+            # Fallback: manter todos
             filtered_products = pending_products
-            clarification_message = f"Não consegui identificar especificamente '{text}'. Mostrando todas as opções disponíveis:"
-        else:
-            clarification_message = f"Perfeito! Filtrando por '{text}':"
+            clarification_message = f"Processando suas especificações..."
 
         # Limpar estado de esclarecimento e processar produtos filtrados
         self.conversation_manager.update_user_state(user_id, {
@@ -315,7 +302,7 @@ class MessageHandler:
         })
 
         # Salvar produtos filtrados como estado normal
-        await self.chatbot_service.product_service._save_conversation_state_for_products(user_id, filtered_products)
+        await self.product_service._save_conversation_state_for_products(user_id, filtered_products)
 
         # Formatar catálogo com produtos filtrados
         model_context, user_message = format_product_catalog(filtered_products, self.chatbot_service.supabase_service)
@@ -393,7 +380,7 @@ class ProductService:
                 self.conversation_manager.update_user_state(user_id, {
                     "pending_products": filtered_products,
                     "awaiting_clarification": True,
-                    "clarification_type": list(variation_analysis["variations"].keys())[0]  # volumes, cores, etc.
+                    "clarification_types": list(variation_analysis["variations"].keys())  # Todas as variações
                 })
 
                 # Retornar mensagem de esclarecimento

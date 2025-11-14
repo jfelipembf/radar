@@ -196,6 +196,57 @@ Se NÃO precisar esclarecer, retorne:
         return {"needs_clarification": False, "variations": {}, "message": ""}
 
 
+    # Determinar se precisa esclarecer
+    total_products = len(products)
+    needs_clarification = False
+    clarification_message = ""
+    clarification_types = []
+
+    if total_products > 3:  # Muitos produtos, pode precisar filtrar
+        # Verificar múltiplas variações
+        if len(variations.get("volumes", [])) > 1:
+            clarification_types.append("volumes")
+            needs_clarification = True
+
+        if len(variations.get("tipos", [])) > 1:
+            clarification_types.append("tipos")
+            needs_clarification = True
+
+        if len(variations.get("cores", [])) > 1:
+            clarification_types.append("cores")
+            needs_clarification = True
+
+        # Construir mensagem baseada em múltiplas variações
+        if needs_clarification:
+            message_parts = []
+            if "volumes" in clarification_types:
+                volumes_list = sorted(list(variations["volumes"]))
+                message_parts.append(f"volumes de caixas d'água: {', '.join(volumes_list)}")
+
+            if "tipos" in clarification_types:
+                tipos_list = sorted(list(variations["tipos"]))
+                if "CP-II" in tipos_list or "CP-III" in tipos_list or "CP-V" in tipos_list:
+                    message_parts.append(f"tipos de cimento: {', '.join(tipos_list)}")
+                else:
+                    message_parts.append(f"tipos: {', '.join(tipos_list)}")
+
+            if "cores" in clarification_types:
+                cores_list = sorted(list(variations["cores"]))
+                message_parts.append(f"cores: {', '.join(cores_list)}")
+
+            if len(message_parts) > 1:
+                clarification_message = f"Existem diferentes {', '.join(message_parts[:-1])} e {message_parts[-1]}. Poderia confirmar qual variação você está procurando?"
+            else:
+                clarification_message = f"Existem diferentes {message_parts[0]}. Poderia confirmar qual variação você está procurando?"
+
+    return {
+        "needs_clarification": needs_clarification,
+        "variations": variations,
+        "message": clarification_message,
+        "total_products": total_products
+    }
+
+
 async def detect_product_switch(user_message: str, conversation_history: List[Dict[str, str]], openai_service) -> Dict[str, Any]:
     """Detecta se o usuário está mudando para outro produto mencionado anteriormente usando IA."""
 

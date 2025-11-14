@@ -317,7 +317,7 @@ class MessageHandler:
                 self.conversation_manager.update_user_state(user_id, {
                     "selected_products": selected_products,
                     "awaiting_clarification": True,
-                    "current_category": next_category,
+                    "current_category": next_category or variation_analysis.get("category_to_clarify", "produto"),
                     "clarified_categories": updated_clarified_categories
                 })
 
@@ -417,6 +417,43 @@ class ProductService:
             # ANALISAR MENSAGEM ORIGINAL para detectar especificações já fornecidas
             logger.info(f"Analisando mensagem original: '{search_text}'")
 
+            # Análise inteligente de especificações na mensagem
+            specified_products = {}
+
+            # Procurar por padrões de especificação na mensagem
+            search_lower = search_text.lower()
+
+            # Verificar caixa d'água
+            if "caixa" in search_lower:
+                if "1000" in search_lower or "mil" in search_lower:
+                    specified_products["caixa_dágua"] = "1000L"
+                    logger.info("Detectado: caixa d'água 1000L na mensagem original")
+                elif "500" in search_lower:
+                    specified_products["caixa_dágua"] = "500L"
+                    logger.info("Detectado: caixa d'água 500L na mensagem original")
+                elif "2000" in search_lower:
+                    specified_products["caixa_dágua"] = "2000L"
+                    logger.info("Detectado: caixa d'água 2000L na mensagem original")
+
+            # Verificar cimento
+            if "cimento" in search_lower:
+                if "cp-ii" in search_lower:
+                    specified_products["cimento"] = "CP-II"
+                    logger.info("Detectado: cimento CP-II na mensagem original")
+                elif "cp-iii" in search_lower:
+                    specified_products["cimento"] = "CP-III"
+                    logger.info("Detectado: cimento CP-III na mensagem original")
+                elif "cp-v" in search_lower:
+                    specified_products["cimento"] = "CP-V"
+                    logger.info("Detectado: cimento CP-V na mensagem original")
+
+            # Verificar areia
+            if "areia" in search_lower:
+                specified_products["areia"] = "lavada"  # Assume lavada por padrão
+                logger.info("Detectado: areia (assumindo lavada) na mensagem original")
+
+            logger.info(f"Produtos com especificações detectadas: {specified_products}")
+
             # DEIXAR IA EXTRAIR produtos mencionados livremente
             product_names = await extract_product_names(search_text, self.chatbot_service.openai_service)
             logger.info(f"IA identificou produtos: {product_names}")
@@ -446,53 +483,149 @@ class ProductService:
 
             logger.info(f"Produtos únicos após filtro: {len(unique_products)}")
 
-            # VERIFICAR se encontrou produtos
-            if not unique_products:
-                logger.info("Nenhum produto encontrado no banco de dados")
-                return {
-                    "model": "Produtos não encontrados",
-                    "user": f"Não encontrei produtos correspondentes à sua solicitação. Tente reformular com termos mais específicos ou verifique se os produtos estão disponíveis em nosso catálogo."
-                }
+            # SEPARAR produtos já especificados dos que precisam esclarecimento
+            clarified_categories = []
+            selected_products = []
 
-            # DEIXAR IA ANALISAR LIVREMENTE todos os produtos encontrados
-            if unique_products:
-                variation_analysis = await analyze_product_variations(
-                    unique_products,
-                    self.chatbot_service.openai_service,
-                    conversation_history=await self.chatbot_service._build_message_history(user_id),
-                    clarified_categories=[]  # Começar sem categorias esclarecidas
-                )
+            for product_type, specification in specified_products.items():
+                if specification:
+                    # Produto já especificado - buscar e adicionar diretamente
+                    try:
+                        # Para produtos já especificados, buscar pelo nome exato
+                        if product_type == "caixa_dágua":
+                            search_term = f"caixa d'água {specification}"
+                        elif product_type == "cimento":
+                            search_term = f"cimento {specification}"
+                        elif product_type == "areia":
+                            search_term = f"areia {specification}"
+                        else:
+                            search_term = specification
 
-                if variation_analysis["needs_clarification"]:
-                    logger.info("IA detectou necessidade de esclarecimento inicial")
-                    logger.info(f"Análise completa retornada: {variation_analysis}")
+                        found_products = await asyncio.to_thread(
+                            self.chatbot_service.supabase_service.get_products,
+                            "material_construcao",
+                            [search_term],
+                            10
+                        )
 
-                    # Verificar se tem clarification_message ou message
-                    clarification_msg = variation_analysis.get("clarification_message") or variation_analysis.get("message")
-                    if not clarification_msg:
-                        logger.error(f"IA não retornou clarification_message ou message: {variation_analysis}")
-                        clarification_msg = "Poderia especificar mais detalhes sobre os produtos?"
+                        if found_products:
+                            cheapest = min(found_products, key=lambda x: _coerce_price(x.get("price", 0)))
+                            selected_products.append({
+                                "type": f"{product_type.title()} {specification}",
+                                "product": cheapest,
+                                "price": _coerce_price(cheapest.get("price", 0)),
+                                "store": cheapest.get("store", {}).get("name", "Loja"),
+                                "quantity": 1
+                            })
+                            clarified_categories.append(product_type)
+                            logger.info(f"Produto especificado adicionado automaticamente: {product_type} {specification}")
+                    except Exception as e:
+                        logger.warning(f"Erro ao buscar produto especificado {product_type}: {e}")
 
-                    self.conversation_manager.update_user_state(user_id, {
-                        "pending_products": unique_products,
-                        "awaiting_clarification": True,
-                        "current_category": variation_analysis.get("category_to_clarify", "caixa_dágua"),
-                        "clarified_categories": [],
-                        "selected_products": []
-                    })
+            # VERIFICAR se ainda há produtos para esclarecer
+            products_needing_clarification = [
+                prod for prod in specified_products.keys()
+                if prod not in clarified_categories
+            ]
 
-                    return {
-                        "model": f"Produtos encontrados, IA identificou necessidade de esclarecimento",
-                        "user": clarification_msg
-                    }
+            logger.info(f"Produtos que ainda precisam esclarecimento: {products_needing_clarification}")
+
+            if products_needing_clarification:
+                # Ainda há produtos para esclarecer - deixar IA decidir qual perguntar primeiro
+                logger.info("Produtos precisam esclarecimento - consultando IA")
+
+                # Filtrar apenas produtos das categorias que precisam esclarecimento
+                relevant_products = []
+                for product in unique_products:
+                    product_name = product.get("name", "").lower()
+                    for category in products_needing_clarification:
+                        if category in product_name:
+                            relevant_products.append(product)
+                            break
+
+                if relevant_products:
+                    variation_analysis = await analyze_product_variations(
+                        relevant_products,
+                        self.chatbot_service.openai_service,
+                        conversation_history=await self.chatbot_service._build_message_history(user_id),
+                        clarified_categories=clarified_categories
+                    )
+
+                    if variation_analysis["needs_clarification"]:
+                        logger.info("IA identificou necessidade de esclarecimento")
+
+                        # Verificar se tem clarification_message ou message
+                        clarification_msg = variation_analysis.get("clarification_message") or variation_analysis.get("message")
+                        if not clarification_msg:
+                            logger.error(f"IA não retornou clarification_message ou message: {variation_analysis}")
+                            clarification_msg = "Poderia especificar mais detalhes sobre os produtos?"
+
+                        self.conversation_manager.update_user_state(user_id, {
+                            "pending_products": unique_products,
+                            "awaiting_clarification": True,
+                            "current_category": variation_analysis.get("category_to_clarify", "produto"),
+                            "clarified_categories": clarified_categories,
+                            "selected_products": selected_products
+                        })
+
+                        # Mostrar produtos já selecionados + pergunta
+                        selected_message = format_selected_products(selected_products)
+
+                        return {
+                            "model": f"Produtos parcialmente especificados, alguns precisam esclarecimento",
+                            "user": f"{selected_message}\n\n{clarification_msg}"
+                        }
                 else:
-                    # IA não viu necessidade de esclarecimento - mostrar orçamento direto
-                    logger.info("IA não detectou variações - mostrando orçamento direto")
-                    await self._save_conversation_state_for_products(user_id, unique_products)
+                    logger.info("Não encontrou produtos relevantes para esclarecimento")
 
-                    model_context, user_message = format_product_catalog(unique_products, self.chatbot_service.supabase_service)
+            # Todos os produtos foram especificados ou não precisam esclarecimento
+            if selected_products:
+                logger.info("Todos os produtos foram especificados - mostrando orçamento")
+                await self._save_conversation_state_for_products(user_id, [item["product"] for item in selected_products])
 
-                    return {"model": "Produtos encontrados sem variações conflitantes", "user": user_message}
+                selected_message = format_selected_products(selected_products)
+                model_context, user_message = format_product_catalog([item["product"] for item in selected_products], self.chatbot_service.supabase_service)
+
+                return {"model": "Produtos especificados completamente", "user": f"{selected_message}\n\n**ORÇAMENTO COMPLETO:**\n\n{user_message}"}
+
+            # Fallback: deixar IA analisar todos os produtos
+            logger.info("Fallback: deixando IA analisar todos os produtos")
+            variation_analysis = await analyze_product_variations(
+                unique_products,
+                self.chatbot_service.openai_service,
+                conversation_history=await self.chatbot_service._build_message_history(user_id),
+                clarified_categories=clarified_categories
+            )
+
+            if variation_analysis["needs_clarification"]:
+                logger.info("IA detectou necessidade de esclarecimento geral")
+
+                # Verificar se tem clarification_message ou message
+                clarification_msg = variation_analysis.get("clarification_message") or variation_analysis.get("message")
+                if not clarification_msg:
+                    logger.error(f"IA não retornou clarification_message ou message: {variation_analysis}")
+                    clarification_msg = "Poderia especificar mais detalhes sobre os produtos?"
+
+                self.conversation_manager.update_user_state(user_id, {
+                    "pending_products": unique_products,
+                    "awaiting_clarification": True,
+                    "current_category": variation_analysis.get("category_to_clarify", "produto"),
+                    "clarified_categories": clarified_categories,
+                    "selected_products": selected_products
+                })
+
+                return {
+                    "model": f"Produtos encontrados, IA identificou necessidade de esclarecimento",
+                    "user": clarification_msg
+                }
+            else:
+                # IA não viu necessidade de esclarecimento - mostrar orçamento direto
+                logger.info("IA não detectou variações - mostrando orçamento direto")
+                await self._save_conversation_state_for_products(user_id, unique_products)
+
+                model_context, user_message = format_product_catalog(unique_products, self.chatbot_service.supabase_service)
+
+                return {"model": "Produtos encontrados sem variações conflitantes", "user": user_message}
         except Exception as exc:
             logger.error("Erro ao buscar catálogo de produtos: %s", exc)
             # Em vez de retornar None (que cai no fallback do OpenAI), retornar mensagem clara

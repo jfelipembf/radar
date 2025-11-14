@@ -248,14 +248,20 @@ Você é um especialista em filtrar produtos de construção baseado nas especif
 
 CONTEXTO: Estamos esclarecendo especificações da categoria "{current_category}"
 
-PRODUTOS DISPONÍVEIS DA CATEGORIA ATUAL:
-{chr(10).join(f"- {p.get('name', '')}: {p.get('description', '')}" for p in pending_products)}
+LISTA COMPLETA DE PRODUTOS DISPONÍVEIS:
+{chr(10).join(f"{i+1}. {p.get('name', '')} - {p.get('description', '')}" for i, p in enumerate(pending_products))}
 
 RESPOSTA DO CLIENTE: "{text}"
 
 TAREFA:
-Filtre apenas os produtos que correspondem à resposta do cliente para esta categoria.
-Se a resposta não for específica o suficiente, mantenha todos os produtos.
+Analise a resposta do cliente e identifique quais produtos ele quer manter.
+O cliente pode especificar volumes, tipos, capacidades, etc. de forma natural.
+
+EXEMPLOS:
+- Cliente diz "500L" → manter apenas produtos com 500L
+- Cliente diz "mil litros" ou "1000L" → manter apenas produtos com 1000L
+- Cliente diz "CP-II" → manter apenas cimentos CP-II
+- Cliente diz "não quero esse" → manter todos exceto o mencionado
 
 RESPONDA APENAS com JSON:
 {{
@@ -264,8 +270,8 @@ RESPONDA APENAS com JSON:
     "reasoning": "breve explicação das especificações identificadas"
 }}
 
-Exemplo para caixas d'água: Cliente diz "500L"
-{{"filtered_products": [0, 1], "clarification_message": "Perfeito! Selecionando caixas de 500L.", "reasoning": "volume 500L"}}
+Exemplo: Cliente diz "1000L" para caixas d'água
+{{"filtered_indices": [0, 5, 10], "clarification_message": "Perfeito! Selecionando produtos de 1000L.", "reasoning": "filtrou por volume 1000L"}}
 """
 
         try:
@@ -273,7 +279,7 @@ Exemplo para caixas d'água: Cliente diz "500L"
             import json
             result = json.loads(response.strip())
 
-            filtered_indices = result.get("filtered_products", [])
+            filtered_indices = result.get("filtered_indices", [])
             clarification_message = result.get("clarification_message", f"Filtrando baseado em: {text}")
             reasoning = result.get("reasoning", "")
 

@@ -116,119 +116,80 @@ def format_product_catalog(products: List[dict], supabase_service: "SupabaseServ
 
 
 async def analyze_product_variations(products: List[Dict[str, Any]], openai_service) -> Dict[str, Any]:
-    """Analisa variações dos produtos encontrados com abordagem híbrida: determinística + IA."""
+    """Analisa variações dos produtos encontrados usando IA pura para detectar padrões dinamicamente."""
 
     if not products or len(products) <= 1:
         return {"needs_clarification": False, "variations": {}, "message": ""}
 
-    # ABORDAGEM HÍBRIDA: Primeiro análise determinística, depois IA se necessário
-    product_groups = {}
+    # Usar IA pura para categorizar e analisar variações
+    prompt = f"""
+Você é um especialista em análise de produtos de construção. Analise a lista abaixo de produtos e:
 
-    # 1. AGRUPAR PRODUTOS DETERMINISTICAMENTE
-    for product in products:
-        name = product.get("name", "").lower()
+1. AGRUPE os produtos por categoria (ex: caixas d'água, cimentos, tintas, massas, areias, etc.)
+2. Para cada categoria com múltiplos produtos, identifique se há VARIAÇÕES SIGNIFICATIVAS
+3. Determine se precisa esclarecer alguma categoria (uma de cada vez, por prioridade)
 
-        # Identificar categoria principal (lógica determinística)
-        category = "outros"
-        if any(term in name for term in ["caixa d", "caixa d'água", "caixa dagua"]):
-            category = "caixa_dagua"
-        elif "cimento" in name:
-            category = "cimento"
-        elif any(term in name for term in ["verniz", "tinta"]):
-            category = "verniz"
-        elif any(term in name for term in ["massa acrílica", "massa acrilica"]):
-            category = "massa_acrilica"
-        elif "massa corrida" in name:
-            category = "massa_corrida"
-        elif "areia" in name:
-            category = "areia"
+LISTA DE PRODUTOS:
+{chr(10).join(f"{i+1}. {p.get('name', '')} - {p.get('description', '')}" for i, p in enumerate(products))}
 
-        if category not in product_groups:
-            product_groups[category] = []
-        product_groups[category].append(product)
+CRITÉRIOS PARA ESCLARECIMENTO (prioridade):
+1. Caixas d'água: volumes/capacidades (500L, 1000L, 2000L, etc.)
+2. Cimentos: tipos (CP-II, CP-III, CP-V, etc.)
+3. Tintas/Vernizes: volumes/tipos (1L, 3.6L, 5L, marítimo, interno, etc.)
+4. Massas: tamanhos/tipos (5kg, 10kg, 25kg, acrílica, corrida, etc.)
+5. Areias/Outros: quantidades/tipos quando houver variações
 
-    # 2. ANALISAR VARIAÇÕES POR CATEGORIA
-    variations_found = {}
-    for category, group_products in product_groups.items():
-        if len(group_products) <= 1:
-            continue
+RESPONDA APENAS com JSON válido:
+{{
+    "needs_clarification": true/false,
+    "current_category": "categoria_escolhida",
+    "clarification_message": "Mensagem clara perguntando sobre a variação específica encontrada",
+    "category_products_indices": [índices dos produtos da categoria, começando do 0],
+    "detected_variations": ["variação1", "variação2", "variação3"]
+}}
 
-        volumes = set()
-        tipos = set()
+Se NÃO precisar esclarecer, retorne:
+{{"needs_clarification": false, "current_category": "", "clarification_message": "", "category_products_indices": [], "detected_variations": []}}
 
-        for product in group_products:
-            name = product.get("name", "").lower()
+IMPORTANTE:
+- Seja específico sobre quais variações encontrou
+- Use linguagem natural e clara na mensagem
+- Foque na primeira categoria prioritária que precisa esclarecimento
+"""
 
-            # Extrair volumes (para caixas d'água, tintas, massas)
-            import re
-            volume_match = re.search(r'(\d+)\s*(l|m³|m3|kg)', name)
-            if volume_match:
-                volume_num = volume_match.group(1)
-                unit = volume_match.group(2)
-                if unit in ['l', 'm³', 'm3'] and int(volume_num) > 50:
-                    volumes.add(f"{volume_num}{unit}")
-                elif unit == 'kg' and int(volume_num) > 1:
-                    volumes.add(f"{volume_num}{unit}")
+    try:
+        response = await openai_service.generate_response(message=prompt)
+        result = response.strip()
 
-            # Extrair tipos específicos
-            if "cp-ii" in name:
-                tipos.add("CP-II")
-            elif "cp-iii" in name:
-                tipos.add("CP-III")
-            elif "cp-v" in name:
-                tipos.add("CP-V")
-            elif "epóxi" in name or "epoxi" in name:
-                tipos.add("Epóxi")
-            elif "acrílica" in name or "acrilica" in name:
-                tipos.add("Acrílica")
+        # Tentar fazer parse do JSON
+        import json
+        try:
+            analysis = json.loads(result)
+        except json.JSONDecodeError:
+            logger.warning(f"Falha no parse JSON da análise de variações: {result}")
+            return {"needs_clarification": False, "variations": {}, "message": ""}
 
-        # Se encontrou variações, adicionar ao resultado
-        if len(volumes) > 1 or len(tipos) > 1:
-            variations_found[category] = {
-                "volumes": list(volumes),
-                "tipos": list(tipos),
-                "products": group_products
+        # Adaptar para o formato esperado
+        if analysis.get("needs_clarification"):
+            category_indices = analysis.get("category_products_indices", [])
+            category_products = [products[i] for i in category_indices if i < len(products)]
+
+            return {
+                "needs_clarification": True,
+                "variations": {analysis.get("current_category", "outro"): {
+                    "products": category_products,
+                    "detected_variations": analysis.get("detected_variations", [])
+                }},
+                "message": analysis.get("clarification_message", ""),
+                "current_category": analysis.get("current_category", ""),
+                "total_products": len(products)
             }
+        else:
+            return {"needs_clarification": False, "variations": {}, "message": ""}
 
-    # 3. DECIDIR SE PRECISA ESCLARECER (sequencial)
-    if variations_found:
-        # Ordem de prioridade para esclarecimento
-        priority_order = ["caixa_dagua", "cimento", "massa_acrilica", "verniz", "massa_corrida", "areia", "outros"]
-
-        for category in priority_order:
-            if category in variations_found:
-                variation_info = variations_found[category]
-
-                # Construir mensagem específica baseada na categoria
-                if category == "caixa_dagua" and variation_info["volumes"]:
-                    volumes_list = sorted(variation_info["volumes"])
-                    message = f"Encontrei caixas d'água com diferentes capacidades: {', '.join(volumes_list)}. Qual volume você precisa?"
-
-                elif category == "cimento" and variation_info["tipos"]:
-                    tipos_list = sorted(variation_info["tipos"])
-                    message = f"Temos diferentes tipos de cimento disponíveis: {', '.join(tipos_list)}. Qual você prefere?"
-
-                elif category in ["verniz", "massa_acrilica"] and (variation_info["volumes"] or variation_info["tipos"]):
-                    options = []
-                    if variation_info["volumes"]:
-                        options.append(f"tamanhos: {', '.join(sorted(variation_info['volumes']))}")
-                    if variation_info["tipos"]:
-                        options.append(f"tipos: {', '.join(sorted(variation_info['tipos']))}")
-                    message = f"Encontrei {category.replace('_', ' ')} com diferentes opções: {', '.join(options)}. Qual você gostaria?"
-
-                else:
-                    # Fallback genérico
-                    message = f"Encontrei variações no produto {category.replace('_', ' ')}. Poderia especificar melhor?"
-
-                return {
-                    "needs_clarification": True,
-                    "variations": {category: variation_info},
-                    "message": message,
-                    "current_category": category,
-                    "total_products": len(products)
-                }
-
-    return {"needs_clarification": False, "variations": {}, "message": ""}
+    except Exception as exc:
+        logger.error(f"Erro na análise de variações com IA: {exc}")
+        return {"needs_clarification": False, "variations": {}, "message": ""}
 
 
 async def detect_product_switch(user_message: str, conversation_history: List[Dict[str, str]], openai_service) -> Dict[str, Any]:

@@ -115,11 +115,20 @@ def format_product_catalog(products: List[dict], supabase_service: "SupabaseServ
     return model_context, user_message
 
 
-async def analyze_product_variations(products: List[Dict[str, Any]], openai_service) -> Dict[str, Any]:
-    """Analisa variações dos produtos encontrados usando IA pura para detectar padrões dinamicamente."""
+async def analyze_product_variations(products: List[Dict[str, Any]], openai_service, conversation_history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
+    """Analisa variações dos produtos encontrados usando IA pura com contexto conversacional."""
 
     if not products or len(products) <= 1:
         return {"needs_clarification": False, "variations": {}, "message": ""}
+
+    # Preparar contexto conversacional
+    conversation_context = ""
+    if conversation_history:
+        recent_messages = conversation_history[-10:]  # Últimas 10 mensagens para contexto
+        conversation_context = "\n".join([
+            f"{'Cliente' if msg.get('role') == 'user' else 'Sistema'}: {msg.get('content', '')}"
+            for msg in recent_messages
+        ])
 
     # Usar IA pura para categorizar e analisar variações
     prompt = f"""
@@ -127,10 +136,14 @@ Você é um especialista em análise de produtos de construção. Analise a list
 
 1. AGRUPE os produtos por categoria (ex: caixas d'água, cimentos, tintas, massas, areias, etc.)
 2. Para cada categoria com múltiplos produtos, identifique se há VARIAÇÕES SIGNIFICATIVAS
-3. Determine se precisa esclarecer alguma categoria (uma de cada vez, por prioridade)
+3. CONSIDERE o histórico da conversa para EVITAR perguntar sobre variações já esclarecidas
+4. Determine se precisa esclarecer alguma categoria (uma de cada vez, por prioridade)
 
 LISTA DE PRODUTOS:
 {chr(10).join(f"{i+1}. {p.get('name', '')} - {p.get('description', '')}" for i, p in enumerate(products))}
+
+HISTÓRICO RECENTE DA CONVERSA (para contexto):
+{conversation_context}
 
 CRITÉRIOS PARA ESCLARECIMENTO (prioridade):
 1. Caixas d'água: volumes/capacidades (500L, 1000L, 2000L, etc.)
@@ -138,6 +151,11 @@ CRITÉRIOS PARA ESCLARECIMENTO (prioridade):
 3. Tintas/Vernizes: volumes/tipos (1L, 3.6L, 5L, marítimo, interno, etc.)
 4. Massas: tamanhos/tipos (5kg, 10kg, 25kg, acrílica, corrida, etc.)
 5. Areias/Outros: quantidades/tipos quando houver variações
+
+IMPORTANTE:
+- Se o histórico mostra que variações já foram perguntadas/esclarecidas, NÃO pergunte novamente
+- Considere respostas como "mil litros" = "1000L" como já esclarecido
+- Foque apenas em variações ainda não esclarecidas
 
 RESPONDA APENAS com JSON válido:
 {{
@@ -151,10 +169,8 @@ RESPONDA APENAS com JSON válido:
 Se NÃO precisar esclarecer, retorne:
 {{"needs_clarification": false, "current_category": "", "clarification_message": "", "category_products_indices": [], "detected_variations": []}}
 
-IMPORTANTE:
-- Seja específico sobre quais variações encontrou
-- Use linguagem natural e clara na mensagem
-- Foque na primeira categoria prioritária que precisa esclarecimento
+Se já foi esclarecido no histórico, retorne:
+{{"needs_clarification": false, "current_category": "", "clarification_message": "", "category_products_indices": [], "detected_variations": [], "reason": "já_esclarecido"}}
 """
 
     try:

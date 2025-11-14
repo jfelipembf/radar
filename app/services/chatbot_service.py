@@ -243,6 +243,7 @@ class MessageHandler:
         clarified_categories = state.get("clarified_categories", [])
 
         # Usar IA para filtrar produtos baseado na resposta completa do usuário
+        conversation_history = await self.chatbot_service._build_message_history(user_id)
         prompt = f"""
 Você é um especialista em filtrar produtos de construção baseado nas especificações do cliente.
 
@@ -253,6 +254,9 @@ LISTA COMPLETA DE PRODUTOS DISPONÍVEIS:
 
 RESPOSTA DO CLIENTE: "{text}"
 
+HISTÓRICO RECENTE DA CONVERSA:
+{chr(10).join([f"{'Cliente' if msg.get('role') == 'user' else 'Sistema'}: {msg.get('content', '')}" for msg in conversation_history[-8:]])}
+
 TAREFA:
 Analise a resposta do cliente e identifique quais produtos ele quer manter.
 O cliente pode especificar volumes, tipos, capacidades, etc. de forma natural.
@@ -262,6 +266,11 @@ EXEMPLOS:
 - Cliente diz "mil litros" ou "1000L" → manter apenas produtos com 1000L
 - Cliente diz "CP-II" → manter apenas cimentos CP-II
 - Cliente diz "não quero esse" → manter todos exceto o mencionado
+
+IMPORTANTE:
+- Considere o histórico da conversa para entender o contexto
+- Se o cliente já especificou anteriormente, respeite essas escolhas
+- Seja inteligente na interpretação das respostas
 
 RESPONDA APENAS com JSON:
 {{
@@ -407,7 +416,11 @@ class ProductService:
                 return None
 
             # ANALISAR VARIAÇÕES - IA determina se precisa esclarecer
-            variation_analysis = await analyze_product_variations(filtered_products, self.chatbot_service.openai_service)
+            variation_analysis = await analyze_product_variations(
+                filtered_products, 
+                self.chatbot_service.openai_service,
+                conversation_history=await self.chatbot_service._build_message_history(user_id)
+            )
 
             if variation_analysis["needs_clarification"]:
                 logger.info("Catálogo → Variações detectadas, solicitando esclarecimento")
@@ -535,7 +548,7 @@ class ChatbotService:
         # 4. Registrar mensagem temporária
         await self._record_temp_message(user_id, text, message_data)
 
-        # 5. Agendar processamento (debounced)
+        # 5. Agendar processamento (debounced) - APENAS se não for opção interativa
         await self._schedule_user_processing(user_id)
 
         return "queued"  # Resposta será enviada posteriormente via debounce

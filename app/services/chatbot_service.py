@@ -363,12 +363,22 @@ class ProductService:
 
             # Filtrar apenas produtos que contenham os nomes identificados
             filtered_products = []
+            found_product_types = set()
+
             for product in products:
                 product_name = product.get("name", "").lower()
-                if any(prod_name in product_name for prod_name in product_names):
-                    filtered_products.append(product)
+                for prod_name in product_names:
+                    if prod_name in product_name:
+                        filtered_products.append(product)
+                        found_product_types.add(prod_name)
+                        break
 
             logger.info("Catálogo → %d produtos retornados, %d após filtro específico", len(products), len(filtered_products))
+
+            # Verificar se encontramos todos os produtos pedidos
+            missing_products = set(product_names) - found_product_types
+            if missing_products:
+                logger.info("Catálogo → Produtos não encontrados: %s", missing_products)
 
             if not filtered_products:
                 logger.info("Catálogo → nenhum produto correspondente após filtro")
@@ -396,6 +406,12 @@ class ProductService:
             await self._save_conversation_state_for_products(user_id, filtered_products)
 
             model_context, user_message = format_product_catalog(filtered_products, self.chatbot_service.supabase_service)
+
+            # Adicionar aviso sobre produtos não encontrados
+            if missing_products:
+                missing_list = ", ".join(missing_products)
+                user_message = f"Encontrei informações sobre alguns produtos, mas não localizei: {missing_list}.\n\n{user_message}"
+
             if not model_context and not user_message:
                 logger.info("Catálogo → nenhum produto formatado para os termos %s", product_names)
             return {"model": model_context, "user": user_message}

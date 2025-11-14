@@ -217,11 +217,18 @@ async def process_debounced_messages(user_id: str) -> None:
         history.append(consolidated)
 
     search_source = consolidated["content"] if consolidated else _latest_user_content(history)
-    product_context = await _build_product_context(search_source)
-    if product_context:
-        history.append({"role": "system", "content": product_context})
+    catalog_context = await _build_product_context(search_source)
+    catalog_message = None
+    if catalog_context:
+        model_context = catalog_context.get("model")
+        catalog_message = catalog_context.get("user")
+        if model_context:
+            history.append({"role": "system", "content": model_context})
 
-    response_text = await openai_service.generate_response(history=history)
+    if catalog_message:
+        response_text = catalog_message
+    else:
+        response_text = await openai_service.generate_response(history=history)
     logger.info("Generated response after debounce for %s: %s", user_id, response_text)
 
     temp_ids: List[str] = []
@@ -342,7 +349,7 @@ def _extract_search_terms(text: Optional[str]) -> List[str]:
     return terms[:10]
 
 
-async def _build_product_context(search_text: Optional[str]) -> Optional[str]:
+async def _build_product_context(search_text: Optional[str]) -> Optional[Dict[str, Optional[str]]]:
     if not supabase_service or not search_text:
         return None
 
@@ -361,20 +368,12 @@ async def _build_product_context(search_text: Optional[str]) -> Optional[str]:
         logger.error("Erro ao buscar catálogo de produtos: %s", exc)
         return None
 
-    catalog_message = _format_product_catalog(products)
-    if catalog_message:
-        return catalog_message
-
-    return (
-        "INSTRUÇÕES DE CATÁLOGO:\n"
-        "- Utilize exclusivamente os dados do Supabase.\n"
-        "- Nenhum produto correspondente foi encontrado para esta consulta.\n"
-        "- Informe ao cliente que não há itens disponíveis e peça nova descrição, sem inventar preços ou lojas."
-    )
+    model_context, user_message = _format_product_catalog(products)
+    return {"model": model_context, "user": user_message}
 
 
-def _format_product_catalog(products: List[Dict[str, Any]]) -> Optional[str]:
-    lines: List[str] = [
+def _format_product_catalog(products: List[Dict[str, Any]]) -> tuple[Optional[str], Optional[str]]:
+    instruction_lines: List[str] = [
         "INSTRUÇÕES DE CATÁLOGO:",
         "- Utilize exclusivamente as informações listadas abaixo.",
         "- Não invente lojas, preços, telefones ou condições de entrega.",
@@ -389,16 +388,24 @@ def _format_product_catalog(products: List[Dict[str, Any]]) -> Optional[str]:
         grouped[name].append(product)
 
     if not grouped:
-        lines.append("")
-        lines.append("Nenhum produto correspondente foi encontrado no Supabase para esta consulta.")
-        return "\n".join(lines)
+        instruction_lines.append("")
+        instruction_lines.append("Nenhum produto correspondente foi encontrado no Supabase para esta consulta.")
+        user_message = (
+            "Não encontrei produtos correspondentes no catálogo do Supabase para essa descrição. "
+            "Pode tentar informar o item com outros detalhes (ex.: nome completo, marca, unidade)?"
+        )
+        return "\n".join(instruction_lines), user_message
 
-    lines.append("")
-    lines.append("CATÁLOGO SUPABASE (ordenado por preço crescente por produto):")
+    instruction_lines.append("")
+    instruction_lines.append("CATÁLOGO SUPABASE (ordenado por preço crescente por produto):")
+
+    user_lines: List[str] = [
+        "Encontrei as seguintes ofertas no catálogo do Supabase:",
+    ]
 
     for product_name in sorted(grouped.keys()):
-        lines.append("")
-        lines.append(f"Produto: {product_name}")
+        instruction_lines.append("")
+        instruction_lines.append(f"Produto: {product_name}")
 
         entries = []
         for product in grouped[product_name]:
@@ -422,16 +429,35 @@ def _format_product_catalog(products: List[Dict[str, Any]]) -> Optional[str]:
                 "delivery": delivery,
             })
 
+        entries = [entry for entry in entries if entry["price"] > 0]
+        if not entries:
+            continue
+
         entries.sort(key=lambda item: item["price"])
+
+        user_lines.append("")
+        user_lines.append(f"Produto: {product_name}")
 
         for index, entry in enumerate(entries):
             highlight = " ← melhor preço" if index == 0 else ""
-            phone_part = f" ({entry['phone']})" if entry["phone"] else ""
-            lines.append(
+            phone_part = f" (WhatsApp: {entry['phone']})" if entry["phone"] else ""
+            instruction_lines.append(
                 f"• {entry['store_name']}{phone_part}: {entry['price_str']} por {entry['unit_label']} | atual. {entry['updated']} | frete: {entry['delivery']}{highlight}"
             )
+            user_lines.append(
+                f"  • {entry['store_name']}: {entry['price_str']} por {entry['unit_label']} (atualizado {entry['updated']}){highlight}"
+            )
 
-    return "\n".join(lines)
+        if len(entries) > 1:
+            economy = entries[1]["price"] - entries[0]["price"]
+            if economy > 0:
+                user_lines.append(
+                    f"  Economia aproximada em relação à segunda opção: { _format_currency(economy) }"
+                )
+
+    model_context = "\n".join(instruction_lines)
+    user_message = "\n".join(user_lines)
+    return model_context, user_message
 
 
 def _coerce_price(value: Any) -> float:

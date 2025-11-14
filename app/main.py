@@ -361,12 +361,25 @@ async def _build_product_context(search_text: Optional[str]) -> Optional[str]:
         logger.error("Erro ao buscar catálogo de produtos: %s", exc)
         return None
 
-    return _format_product_catalog(products)
+    catalog_message = _format_product_catalog(products)
+    if catalog_message:
+        return catalog_message
+
+    return (
+        "INSTRUÇÕES DE CATÁLOGO:\n"
+        "- Utilize exclusivamente os dados do Supabase.\n"
+        "- Nenhum produto correspondente foi encontrado para esta consulta.\n"
+        "- Informe ao cliente que não há itens disponíveis e peça nova descrição, sem inventar preços ou lojas."
+    )
 
 
 def _format_product_catalog(products: List[Dict[str, Any]]) -> Optional[str]:
-    if not products:
-        return None
+    lines: List[str] = [
+        "INSTRUÇÕES DE CATÁLOGO:",
+        "- Utilize exclusivamente as informações listadas abaixo.",
+        "- Não invente lojas, preços, telefones ou condições de entrega.",
+        "- Se o item solicitado não aparecer aqui, informe ao cliente que o Supabase não retornou resultados e solicite novos detalhes.",
+    ]
 
     grouped: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     for product in products:
@@ -376,12 +389,12 @@ def _format_product_catalog(products: List[Dict[str, Any]]) -> Optional[str]:
         grouped[name].append(product)
 
     if not grouped:
-        return None
+        lines.append("")
+        lines.append("Nenhum produto correspondente foi encontrado no Supabase para esta consulta.")
+        return "\n".join(lines)
 
-    lines: List[str] = [
-        "CATÁLOGO SUPABASE",
-        "Loja e preço por produto encontrado:",
-    ]
+    lines.append("")
+    lines.append("CATÁLOGO SUPABASE (ordenado por preço crescente por produto):")
 
     for product_name in sorted(grouped.keys()):
         lines.append("")

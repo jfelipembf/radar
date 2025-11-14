@@ -1,9 +1,10 @@
 """OpenAI service wrapper."""
 
 import asyncio
+import json
 import logging
 import os
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from openai import OpenAI
 
@@ -60,6 +61,44 @@ class OpenAIService:
             return choice
         except Exception as exc:  # noqa: BLE001 - queremos logar erros genéricos da API
             logger.exception("Erro ao gerar resposta da OpenAI: %s", exc)
+            raise
+    
+    async def chat_with_tools(
+        self,
+        messages: List[Dict[str, str]],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: str = "auto",
+    ) -> Any:
+        """Generate response with function calling support (MCP).
+        
+        Args:
+            messages: Lista de mensagens da conversa
+            tools: Lista de ferramentas (tools) disponíveis para a IA
+            tool_choice: "auto", "none", ou {"type": "function", "function": {"name": "..."}}
+            
+        Returns:
+            Response object do OpenAI com possíveis tool_calls
+        """
+        try:
+            kwargs = {
+                "model": self._model,
+                "messages": messages,
+            }
+            
+            if tools:
+                kwargs["tools"] = tools
+                kwargs["tool_choice"] = tool_choice
+            
+            response = await asyncio.to_thread(
+                self._client.chat.completions.create,
+                **kwargs
+            )
+            
+            logger.debug("OpenAI response with tools: %s", response.choices[0].message)
+            return response
+            
+        except Exception as exc:
+            logger.exception("Erro ao gerar resposta com tools: %s", exc)
             raise
 
 

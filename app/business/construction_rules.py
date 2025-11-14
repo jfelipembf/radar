@@ -113,8 +113,90 @@ def format_product_catalog(products: List[dict], supabase_service: "SupabaseServ
     return model_context, user_message
 
 
+async def analyze_product_variations(products: List[Dict[str, Any]], openai_service) -> Dict[str, Any]:
+    """Analisa variações dos produtos encontrados e determina se precisa esclarecer."""
+
+    if not products:
+        return {"needs_clarification": False, "variations": {}, "message": ""}
+
+    # Extrair características dos produtos
+    variations = {
+        "volumes": set(),
+        "cores": set(),
+        "marcas": set(),
+        "tipos": set()
+    }
+
+    for product in products:
+        name = product.get("name", "").lower()
+
+        # Extrair volume (L, kg, m³, etc.)
+        if "l" in name and any(char.isdigit() for char in name):
+            import re
+            volume_match = re.search(r'(\d+)\s*l', name)
+            if volume_match:
+                variations["volumes"].add(f"{volume_match.group(1)}L")
+
+        # Extrair cores
+        cores = ["branco", "preto", "azul", "vermelho", "verde", "amarelo", "marrom", "cinza"]
+        for cor in cores:
+            if cor in name:
+                variations["cores"].add(cor.title())
+
+        # Extrair marcas do campo description ou name
+        description = product.get("description", "").lower()
+        marcas_conhecidas = ["fortlev", "cimbrasil", "azulfort", "brancolar", "verdemax", "epoxipro", "tintacor"]
+        for marca in marcas_conhecidas:
+            if marca in description or marca in name:
+                variations["marcas"].add(marca.title())
+
+        # Tipos especiais
+        if "cp-ii" in name.lower():
+            variations["tipos"].add("CP-II")
+        elif "cp-iii" in name.lower():
+            variations["tipos"].add("CP-III")
+        elif "cp-v" in name.lower():
+            variations["tipos"].add("CP-V")
+        elif "epóxi" in name.lower() or "epoxi" in name.lower():
+            variations["tipos"].add("Epóxi")
+        elif "acrílica" in name.lower() or "acrilica" in name.lower():
+            variations["tipos"].add("Acrílica")
+
+    # Limpar variações vazias
+    variations = {k: v for k, v in variations.items() if v}
+
+    # Determinar se precisa esclarecer
+    total_products = len(products)
+    needs_clarification = False
+    clarification_message = ""
+
+    if total_products > 3:  # Muitos produtos, pode precisar filtrar
+        if len(variations.get("volumes", [])) > 1:
+            needs_clarification = True
+            volumes_list = sorted(list(variations["volumes"]))
+            clarification_message = f"Encontrei caixas d'água em {len(volumes_list)} volumes diferentes: {', '.join(volumes_list)}. Qual volume você precisa?"
+
+        elif len(variations.get("cores", [])) > 1:
+            needs_clarification = True
+            cores_list = sorted(list(variations["cores"]))
+            clarification_message = f"Encontrei tintas em {len(cores_list)} cores: {', '.join(cores_list)}. Qual cor você prefere?"
+
+        elif len(variations.get("tipos", [])) > 1:
+            needs_clarification = True
+            tipos_list = sorted(list(variations["tipos"]))
+            clarification_message = f"Encontrei cimentos em {len(tipos_list)} tipos: {', '.join(tipos_list)}. Qual tipo você precisa?"
+
+    return {
+        "needs_clarification": needs_clarification,
+        "variations": variations,
+        "message": clarification_message,
+        "total_products": total_products
+    }
+
+
 __all__ = [
     "should_search_products",
     "extract_product_names",
     "format_product_catalog",
+    "analyze_product_variations",
 ]

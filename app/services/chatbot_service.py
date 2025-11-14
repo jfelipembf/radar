@@ -76,7 +76,26 @@ class MessageHandler:
 
         state = self.conversation_manager.get_user_state(user_id)
 
-        # DETECTAR SE USUÁRIO ESTÁ TENTANDO MUDAR PARA OUTRO PRODUTO
+        # PRIORIDADE 1: Verificar se está aguardando esclarecimento sobre produtos
+        if state.get("awaiting_clarification"):
+            return await self._handle_product_clarification(user_id, text.strip())
+
+        # PRIORIDADE 2: Verificar se está aguardando seleção de loja
+        if state.get("awaiting_store_selection"):
+            return await self._handle_store_selection(user_id, text)
+
+        # PRIORIDADE 3: Verificar se está aguardando confirmação de compra
+        if state.get("awaiting_purchase_confirmation"):
+            if text.strip() == "1":
+                return await self._handle_finalize_purchase(user_id)
+            elif text.strip() == "0":
+                # Limpar estado e voltar ao menu
+                self.conversation_manager.clear_user_state(user_id)
+                return "Voltando ao menu principal. Como posso ajudar?"
+            else:
+                return "Por favor, digite 1 para finalizar a compra ou 0 para voltar ao menu."
+
+        # PRIORIDADE 4: DETECTAR SE USUÁRIO ESTÁ TENTANDO MUDAR PARA OUTRO PRODUTO (apenas se não estiver em nenhum estado ativo)
         try:
             history = await self.chatbot_service._build_message_history(user_id)
             product_switch = await detect_product_switch(text, history, self.chatbot_service.openai_service)
@@ -89,26 +108,7 @@ class MessageHandler:
         except Exception as exc:
             logger.warning(f"Erro ao detectar troca de produto: {exc}")
 
-        # Verificar se está aguardando esclarecimento sobre produtos
-        if state.get("awaiting_clarification"):
-            return await self._handle_product_clarification(user_id, text.strip())
-
-        # Verificar se está aguardando seleção de loja (após opção 3)
-        if state.get("awaiting_store_selection"):
-            return await self._handle_store_selection(user_id, text)
-
-        # Verificar se está aguardando confirmação de compra (após opção 2)
-        if state.get("awaiting_purchase_confirmation"):
-            if text.strip() == "1":
-                return await self._handle_finalize_purchase(user_id)
-            elif text.strip() == "0":
-                # Limpar estado e voltar ao menu
-                self.conversation_manager.clear_user_state(user_id)
-                return "Voltando ao menu principal. Como posso ajudar?"
-            else:
-                return "Por favor, digite 1 para finalizar a compra ou 0 para voltar ao menu."
-
-        # Processar opções principais
+        # PRIORIDADE 5: Processar opções principais do menu
         if text == "1":
             return await self._handle_finalize_purchase(user_id)
         elif text == "2":

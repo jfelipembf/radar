@@ -454,3 +454,17 @@ class ChatbotService:
                 return f"Opção inválida. Digite um número de 1 a {len(sorted_stores)} ou 0 para voltar."
         except ValueError:
             return "Por favor, digite apenas o número da opção desejada."
+
+    async def _send_whatsapp_message(self, user_id: str, text: str):
+        """Envia mensagem para o usuário via WhatsApp."""
+        try:
+            await asyncio.to_thread(self.evolution_service.send_message, user_id, text)
+        except Exception as exc:
+            logger.error("Erro ao enviar mensagem WhatsApp para %s: %s", user_id, exc)
+
+    async def _update_presence(self, user_id: str, presence: str, delay_ms: Optional[int] = None):
+        """Atualiza a presença do usuário no WhatsApp."""
+        try:
+            await asyncio.to_thread(self.evolution_service.send_presence, user_id, presence, delay_ms)
+        except Exception as exc:
+            logger.error("Erro ao atualizar presença para %s: %s", user_id, exc)

@@ -6,6 +6,7 @@ if TYPE_CHECKING:
     from app.services.openai_service import OpenAIService
     from app.services.supabase_service import SupabaseService
 
+from app.business.message_templates import format_interactive_catalog
 from app.utils.formatters import _coerce_price, _format_currency, _format_date, _format_phone, _parse_created_at
 from app.utils.parsers import _extract_search_terms
 
@@ -84,7 +85,7 @@ Quais produtos de construção são mencionados?
 
 
 def format_product_catalog(products: List[dict], supabase_service: "SupabaseService") -> tuple[Optional[str], Optional[str]]:
-    """Formata catálogo de produtos para exibição."""
+    """Formata catálogo de produtos para exibição com opções interativas."""
     instruction_lines: List[str] = [
         "INSTRUÇÕES DE CATÁLOGO:",
         "- Utilize exclusivamente as informações listadas abaixo.",
@@ -92,15 +93,10 @@ def format_product_catalog(products: List[dict], supabase_service: "SupabaseServ
         "- Se o item solicitado não aparecer aqui, informe ao cliente que o Supabase não retornou resultados e solicite novos detalhes.",
     ]
 
-    from collections import defaultdict
-    grouped = defaultdict(list)
-    for product in products:
-        name = product.get("name")
-        if not name:
-            continue
-        grouped[name].append(product)
+    # Usar o novo template interativo
+    user_message = format_interactive_catalog(products, supabase_service)
 
-    if not grouped:
+    if not user_message:
         instruction_lines.append("")
         instruction_lines.append("Nenhum produto correspondente foi encontrado no Supabase para esta consulta.")
         user_message = (
@@ -109,70 +105,11 @@ def format_product_catalog(products: List[dict], supabase_service: "SupabaseServ
         )
         return "\n".join(instruction_lines), user_message
 
+    # Para o contexto do modelo, manter informações básicas
     instruction_lines.append("")
-    instruction_lines.append("CATÁLOGO SUPABASE (ordenado por preço crescente por produto):")
-
-    user_lines: List[str] = [
-        "Encontrei as seguintes ofertas no catálogo do Supabase:",
-    ]
-
-    for product_name in sorted(grouped.keys()):
-        instruction_lines.append("")
-        instruction_lines.append(f"Produto: {product_name}")
-
-        entries = []
-        for product in grouped[product_name]:
-            store_info = product.get("store") or {}
-            store_name = store_info.get("name") or "Loja"
-            phone = _format_phone(product.get("store_phone") or store_info.get("phone"))
-            price_value = _coerce_price(product.get("price"))
-            price_str = _format_currency(price_value)
-            unit_label = product.get("unit_label") or "unidade"
-            updated_at = _parse_created_at(product.get("updated_at"))
-            updated_str = _format_date(updated_at)
-            delivery = product.get("delivery_info") or "Entrega a combinar"
-
-            entries.append({
-                "store_name": store_name,
-                "phone": phone,
-                "price": price_value,
-                "price_str": price_str,
-                "unit_label": unit_label,
-                "updated": updated_str,
-                "delivery": delivery,
-            })
-
-        entries = [entry for entry in entries if entry["price"] > 0]
-        if not entries:
-            continue
-
-        entries.sort(key=lambda item: item["price"])
-
-        user_lines.append("")
-        user_lines.append(f"Produto: {product_name}")
-
-        for index, entry in enumerate(entries):
-            highlight = " ← melhor preço" if index == 0 else ""
-            phone_part = f" (WhatsApp: {entry['phone']})" if entry["phone"] else ""
-            instruction_lines.append(
-                f"• {entry['store_name']}{phone_part}: {entry['price_str']} por {entry['unit_label']} | atual. {entry['updated']} | frete: {entry['delivery']}{highlight}"
-            )
-            user_lines.append(
-                f"  • {entry['store_name']}: {entry['price_str']} por {entry['unit_label']} (atualizado {entry['updated']}){highlight}"
-            )
-
-        if len(entries) > 1:
-            economy = entries[1]["price"] - entries[0]["price"]
-            if economy > 0:
-                user_lines.append(
-                    f"  Economia aproximada em relação à segunda opção: {_format_currency(economy)}"
-                )
-
-    if not user_lines or len(user_lines) == 1:
-        return "\n".join(instruction_lines), None
+    instruction_lines.append("CATÁLOGO INTERATIVO - O usuário pode escolher opções 1, 2 ou 3.")
 
     model_context = "\n".join(instruction_lines)
-    user_message = "\n".join(user_lines)
     return model_context, user_message
 
 

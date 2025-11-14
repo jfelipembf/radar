@@ -9,6 +9,13 @@ from app.business.construction_rules import (
     extract_product_names,
     format_product_catalog,
 )
+from app.business.message_templates import (
+    format_purchase_summary,
+    create_whatsapp_link,
+    format_best_price_details,
+    format_all_stores_details,
+    get_menu_options,
+)
 from app.services.openai_service import OpenAIService
 from app.services.supabase_service import SupabaseService
 from app.services.evolution_service import EvolutionService
@@ -30,10 +37,17 @@ class ChatbotService:
         self.openai_service = openai_service
         self.supabase_service = supabase_service
         self.evolution_service = evolution_service
+        # Estado da conversa por usuário (para gerenciar opções interativas)
+        self.conversation_state: Dict[str, Dict[str, Any]] = {}
 
     async def process_message(self, user_id: str, text: str, message_data: dict) -> str:
         """Processa uma mensagem do usuário e retorna a resposta."""
         logger.info(f"Processing message from {user_id}: {text}")
+
+        # Verificar se é uma opção interativa (1, 2, 3, etc.)
+        interactive_response = await self._handle_interactive_option(user_id, text.strip())
+        if interactive_response:
+            return interactive_response
 
         # Se Supabase não está disponível, responder imediatamente
         if not self.supabase_service:
@@ -150,6 +164,10 @@ class ChatbotService:
             if not filtered_products:
                 logger.info("Catálogo → nenhum produto correspondente após filtro")
                 return None
+
+            # IMPORTANTE: Salvar estado da conversa para opções interativas
+            # Isso precisa ser feito ANTES de chamar format_product_catalog
+            await self._save_conversation_state_for_products(user_id, filtered_products)
 
             model_context, user_message = format_product_catalog(filtered_products, self.supabase_service)
             if not model_context and not user_message:
@@ -272,9 +290,167 @@ class ChatbotService:
         except Exception as exc:
             logger.error("Erro ao salvar mensagem no Supabase: %s", exc)
 
-    async def _send_whatsapp_message(self, user_id: str, text: str):
-        """Envia mensagem para o usuário via WhatsApp."""
+    async def _save_conversation_state_for_products(self, user_id: str, products: List[dict]):
+        """Salva estado da conversa com dados dos produtos para opções interativas."""
+        from collections import defaultdict
+
+        # Agrupar produtos por nome e calcular totais por loja
+        grouped_products = defaultdict(list)
+        for product in products:
+            name = product.get("name", "").strip()
+            if name:
+                grouped_products[name].append(product)
+
+        store_totals = defaultdict(lambda: {"products": [], "total": 0.0, "store_info": {}})
+
+        for product_name, product_list in grouped_products.items():
+            # Pegar o produto mais barato para cada nome
+            valid_products = [p for p in product_list if _coerce_price(p.get("price")) > 0]
+            if not valid_products:
+                continue
+
+            cheapest_product = min(valid_products, key=lambda p: _coerce_price(p.get("price")))
+
+            store_info = cheapest_product.get("store", {})
+            store_name = store_info.get("name", "Loja")
+            store_phone = _format_phone(cheapest_product.get("store_phone") or store_info.get("phone"))
+
+            price_value = _coerce_price(cheapest_product.get("price"))
+            unit_label = cheapest_product.get("unit_label", "unidade")
+
+            store_totals[store_name]["products"].append({
+                "name": product_name,
+                "price": price_value,
+                "price_str": _format_currency(price_value),
+                "unit_label": unit_label
+            })
+            store_totals[store_name]["total"] += price_value
+            store_totals[store_name]["store_info"] = {
+                "name": store_name,
+                "phone": store_phone
+            }
+
+        # Salvar estado da conversa
+        self.conversation_state[user_id] = {
+            "store_totals": dict(store_totals),
+            "timestamp": asyncio.get_event_loop().time()
+        }
+
+    async def _handle_interactive_option(self, user_id: str, text: str) -> Optional[str]:
+        """Processa opções interativas do usuário (1, 2, 3, etc.)."""
+        if user_id not in self.conversation_state:
+            return None
+
+        state = self.conversation_state[user_id]
+
+        # Verificar se está aguardando seleção de loja (após opção 3)
+        if state.get("awaiting_store_selection"):
+            return await self._handle_store_selection(user_id, text)
+
+        # Processar opções principais
+        if text == "1":
+            return await self._handle_finalize_purchase(user_id)
+        elif text == "2":
+            return await self._handle_best_price_details(user_id)
+        elif text == "3":
+            return await self._handle_all_stores_details(user_id)
+        elif text == "0":
+            # Limpar estado e voltar ao menu
+            del self.conversation_state[user_id]
+            return "Voltando ao menu principal. Como posso ajudar?"
+
+        return None
+
+    async def _handle_finalize_purchase(self, user_id: str) -> str:
+        """Processa finalização de compra da loja mais barata."""
+        state = self.conversation_state.get(user_id)
+        if not state or "store_totals" not in state:
+            return "Estado da conversa expirou. Por favor, faça uma nova busca de produtos."
+
+        # Pegar a loja mais barata
+        sorted_stores = sorted(state["store_totals"].items(), key=lambda x: x[1]["total"])
+        if not sorted_stores:
+            return "Erro: Nenhuma loja disponível."
+
+        store_name, store_data = sorted_stores[0]
+        products = store_data["products"]
+        store_phone = store_data["store_info"].get("phone")
+
+        # Formatar mensagens
+        customer_msg, store_msg = format_purchase_summary(store_name, products, user_id)
+
+        # Criar link do WhatsApp se houver telefone
+        whatsapp_link = ""
+        if store_phone:
+            whatsapp_link = create_whatsapp_link(store_phone, store_msg)
+            customer_msg += f"\n\n🔗 {whatsapp_link}"
+
+        # Enviar mensagem para a loja
+        if store_phone:
+            try:
+                await self._send_whatsapp_message(store_phone, store_msg)
+                logger.info(f"Mensagem enviada para loja {store_name}: {store_phone}")
+            except Exception as exc:
+                logger.error(f"Erro ao enviar mensagem para loja {store_name}: {exc}")
+
+        # Limpar estado da conversa
+        del self.conversation_state[user_id]
+
+        return customer_msg
+
+    async def _handle_best_price_details(self, user_id: str) -> str:
+        """Mostra detalhes do melhor preço."""
+        state = self.conversation_state.get(user_id)
+        if not state or "store_totals" not in state:
+            return "Estado da conversa expirou. Por favor, faça uma nova busca de produtos."
+
+        # Pegar a loja mais barata
+        sorted_stores = sorted(state["store_totals"].items(), key=lambda x: x[1]["total"])
+        if not sorted_stores:
+            return "Erro: Nenhuma loja disponível."
+
+        store_name, store_data = sorted_stores[0]
+
+        # Atualizar estado para aguardar confirmação
+        state["awaiting_purchase_confirmation"] = store_name
+
+        return format_best_price_details(store_data)
+
+    async def _handle_all_stores_details(self, user_id: str) -> str:
+        """Mostra detalhes de todas as lojas."""
+        state = self.conversation_state.get(user_id)
+        if not state or "store_totals" not in state:
+            return "Estado da conversa expirou. Por favor, faça uma nova busca de produtos."
+
+        # Atualizar estado para aguardar seleção
+        state["awaiting_store_selection"] = True
+
+        return format_all_stores_details(state["store_totals"])
+
+    async def _handle_store_selection(self, user_id: str, selection: str) -> Optional[str]:
+        """Processa seleção de loja específica."""
+        state = self.conversation_state.get(user_id)
+        if not state or "store_totals" not in state:
+            return "Estado da conversa expirou. Por favor, faça uma nova busca de produtos."
+
+        if selection == "0":
+            # Voltar ao menu principal
+            del state["awaiting_store_selection"]
+            return "Voltando ao menu principal. " + format_all_stores_details(state["store_totals"])
+
         try:
-            await asyncio.to_thread(self.evolution_service.send_message, user_id, text)
-        except Exception as exc:
-            logger.error("Erro ao enviar mensagem WhatsApp para %s: %s", user_id, exc)
+            store_index = int(selection) - 1
+            sorted_stores = sorted(state["store_totals"].items(), key=lambda x: x[1]["total"])
+
+            if 0 <= store_index < len(sorted_stores):
+                store_name, store_data = sorted_stores[store_index]
+
+                # Limpar flags de espera e preparar para finalização
+                del state["awaiting_store_selection"]
+                state["awaiting_purchase_confirmation"] = store_name
+
+                return format_best_price_details(store_data)
+            else:
+                return f"Opção inválida. Digite um número de 1 a {len(sorted_stores)} ou 0 para voltar."
+        except ValueError:
+            return "Por favor, digite apenas o número da opção desejada."

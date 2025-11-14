@@ -60,10 +60,7 @@ class ChatbotService:
             logger.debug(f"Generated response: {response_text[:100]}{'...' if len(response_text) > 100 else ''}")
             return response_text
 
-        # PRIMEIRO: ENVIAR indicador de processamento
-        await self._send_whatsapp_message(user_id, "🔄 *Processando sua solicitação...*")
-
-        # Verificar saudação diária (pode enviar mensagem se necessário)
+        # Verificar saudação diária
         await self._maybe_send_daily_greeting(user_id)
 
         # Registrar mensagem temporária
@@ -277,8 +274,8 @@ class ChatbotService:
 
     async def _schedule_user_processing(self, user_id: str):
         """Agenda processamento debounced."""
-        # Aguardar debounce e processar
-        await asyncio.sleep(2)  # Debounce simplificado de 2 segundos para teste
+        # Aguardar debounce reduzido para teste (0.5 segundos)
+        await asyncio.sleep(0.5)  # Reduzido para resposta mais rápida
         await self.process_debounced_messages(user_id)
 
     async def _log_message(self, user_id: str, content: str, role: str, created_at: Optional[str] = None):
@@ -360,6 +357,17 @@ class ChatbotService:
         if state.get("awaiting_store_selection"):
             return await self._handle_store_selection(user_id, text)
 
+        # Verificar se está aguardando confirmação de compra (após opção 2)
+        if state.get("awaiting_purchase_confirmation"):
+            if text.strip() == "1":
+                return await self._handle_finalize_purchase(user_id)
+            elif text.strip() == "0":
+                # Limpar estado e voltar ao menu
+                del state["awaiting_purchase_confirmation"]
+                return "Voltando ao menu principal. " + self._get_main_menu()
+            else:
+                return "Por favor, digite 1 para finalizar a compra ou 0 para voltar ao menu."
+
         # Processar opções principais
         if text == "1":
             return await self._handle_finalize_purchase(user_id)
@@ -374,18 +382,39 @@ class ChatbotService:
 
         return None
 
+    def _get_main_menu(self) -> str:
+        """Retorna o menu principal de opções."""
+        if not self.conversation_state:
+            return "Como posso ajudar?"
+
+        # Se há estado de conversa, mostrar as opções do orçamento
+        return """🏪 ORÇAMENTO DE MATERIAIS DE CONSTRUÇÃO
+
+📋 Opções:
+1️⃣ Finalizar compra da loja mais barata
+2️⃣ Ver detalhes do melhor preço
+3️⃣ Ver detalhes de todas as lojas
+
+Digite o número da opção desejada:"""
+
     async def _handle_finalize_purchase(self, user_id: str) -> str:
-        """Processa finalização de compra da loja mais barata."""
+        """Processa finalização de compra da loja mais barata ou selecionada."""
         state = self.conversation_state.get(user_id)
         if not state or "store_totals" not in state:
             return "Estado da conversa expirou. Por favor, faça uma nova busca de produtos."
 
-        # Pegar a loja mais barata
-        sorted_stores = sorted(state["store_totals"].items(), key=lambda x: x[1]["total"])
-        if not sorted_stores:
-            return "Erro: Nenhuma loja disponível."
+        # Verificar se há uma loja específica selecionada (depois de ver detalhes)
+        if state.get("selected_store_data"):
+            store_name = state["awaiting_purchase_confirmation"]
+            store_data = state["selected_store_data"]
+        else:
+            # Pegar a loja mais barata
+            sorted_stores = sorted(state["store_totals"].items(), key=lambda x: x[1]["total"])
+            if not sorted_stores:
+                return "Erro: Nenhuma loja disponível."
 
-        store_name, store_data = sorted_stores[0]
+            store_name, store_data = sorted_stores[0]
+
         products = store_data["products"]
         store_phone = store_data["store_info"].get("phone")
 
@@ -424,8 +453,9 @@ class ChatbotService:
 
         store_name, store_data = sorted_stores[0]
 
-        # Atualizar estado para aguardar confirmação
+        # Manter estado para aguardar confirmação de compra
         state["awaiting_purchase_confirmation"] = store_name
+        state["selected_store_data"] = store_data
 
         return format_best_price_details(store_data)
 

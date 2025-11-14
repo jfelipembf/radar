@@ -44,7 +44,7 @@ class ProductMCPServer:
                             "limit": {
                                 "type": "integer",
                                 "description": "Número máximo de produtos a retornar",
-                                "default": 20
+                                "default": 10
                             }
                         },
                         "required": ["category"]
@@ -159,7 +159,7 @@ class ProductMCPServer:
         self, 
         category: str, 
         specification: Optional[str] = None,
-        limit: int = 20
+        limit: int = 10
     ) -> Dict[str, Any]:
         """
         Busca produtos no catálogo.
@@ -190,7 +190,7 @@ class ProductMCPServer:
                 exact_filters=exact_filters
             )
             
-            # Formatar resposta
+            # Formatar resposta - apenas campos essenciais para economizar tokens
             result = {
                 "success": True,
                 "category": category,
@@ -198,17 +198,17 @@ class ProductMCPServer:
                 "count": len(products),
                 "products": [
                     {
-                        "id": p.get("id"),
                         "name": p.get("name"),
                         "price": p.get("price"),
-                        "store": p.get("store", {}).get("name"),
-                        "description": p.get("description", "")
+                        "store": p.get("store", {}).get("name", "Loja"),
+                        # Descrição limitada a 80 chars para economizar tokens
+                        "description": (p.get("description", "") or "")[:80]
                     }
-                    for p in products
+                    for p in products[:limit]  # Garantir limite
                 ]
             }
             
-            logger.info(f"MCP - search_products: encontrados {len(products)} produtos")
+            logger.info(f"MCP - search_products: encontrados {len(products)} produtos, retornando {len(result['products'])}")
             return result
             
         except Exception as exc:

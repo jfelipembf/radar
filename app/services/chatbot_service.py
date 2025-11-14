@@ -102,14 +102,17 @@ class ChatbotService:
 📋 FLUXO OBRIGATÓRIO:
 
 1️⃣ ADICIONAR PRODUTOS:
-   - Use get_cheapest_product para cada produto
+   - Use get_cheapest_product UMA VEZ para cada produto
    - Guarde em lista: [{name, price, store, quantity, unit}]
    - Confirme: "✅ Adicionei [produto] por R$ [preço]"
+   - IMPORTANTE: Adicione quantidade correta (ex: 2 sacos, 5m³)
 
-2️⃣ MOSTRAR ORÇAMENTO (quando usuário terminar):
-   - OBRIGATÓRIO: chame calculate_best_budget(products=[...])
-   - Mostre resultado EXATAMENTE como retornado
+2️⃣ MOSTRAR ORÇAMENTO (AUTOMATICAMENTE após adicionar todos):
+   - Quando todos os produtos forem adicionados, PARE de usar ferramentas
+   - OBRIGATÓRIO: chame calculate_best_budget(products=[...]) UMA VEZ
+   - Mostre resultado formatado
    - NÃO calcule nada manualmente
+   - NÃO chame get_cheapest_product novamente
 
 3️⃣ FINALIZAR (quando usuário digitar "1"):
    - OBRIGATÓRIO: chame finalize_purchase com:
@@ -121,36 +124,38 @@ class ChatbotService:
 
 ⚠️ REGRAS CRÍTICAS:
 - NUNCA calcule totais manualmente
-- SEMPRE use calculate_best_budget antes de mostrar orçamento
+- NUNCA chame a mesma ferramenta múltiplas vezes seguidas
+- Após adicionar todos os produtos, chame calculate_best_budget UMA VEZ e PARE
 - SEMPRE use finalize_purchase quando usuário digitar "1"
 - NÃO invente mensagens de finalização
 - Mostre APENAS o que as ferramentas retornam
+- Se já adicionou um produto, NÃO adicione novamente
 
 EXEMPLO COMPLETO:
 
-Usuário: "preciso de cimento e areia"
-Você: [get_product_variations("cimento")]
-Você: "Temos CP-II, CP-III. Qual prefere?"
+Usuário: "preciso de caixa d'água 1000L, 2 sacos de cimento e 5m³ de areia"
 
-Usuário: "CP-II"
-Você: [get_cheapest_product("cimento", "CP-II")]
-Você: "✅ Adicionei Cimento CP-II 50kg - R$ 32,00"
-Você: [get_product_variations("areia")]
-Você: "Qual tipo de areia?"
+Iteração 1:
+Você: [get_cheapest_product("caixa d'água", "1000L")]
+Você: [get_cheapest_product("cimento")] → quantity=2
+Você: [get_cheapest_product("areia")] → quantity=5
+Você: Lista interna: [
+  {name:"Caixa 1000L", price:599, store:"Loja A", quantity:1},
+  {name:"Cimento", price:32, store:"Loja A", quantity:2},
+  {name:"Areia", price:150, store:"Loja B", quantity:5}
+]
 
-Usuário: "lavada"
-Você: [get_cheapest_product("areia", "lavada")]
-Você: "✅ Adicionei Areia lavada - R$ 150,00"
-
-Usuário: "pronto"
-Você: [calculate_best_budget(products=[{cimento}, {areia}])]
-Você: [recebe: stores=[{store:"Loja A", total:182}, {store:"Loja B", total:200}]]
-Você: Mostra resultado formatado com opções 1️⃣ 2️⃣ 3️⃣
+Iteração 2:
+Você: [calculate_best_budget(products=[...])]
+Você: [recebe: stores=[{store:"Loja A", total:663}, {store:"Loja B", total:750}]]
+Você: Responde ao usuário mostrando orçamento + opções 1️⃣ 2️⃣ 3️⃣
+→ PARA aqui, não chama mais ferramentas
 
 Usuário: "1"
-Você: [finalize_purchase(store_name="Loja A", products=[...], total=182, customer_id="555...")]
-Você: [recebe: {customer_message: "✅ Compra finalizada...", whatsapp_link: "https://..."}]
-Você: Mostra APENAS customer_message
+Você: [finalize_purchase(store_name="Loja A", products=[...], total=663, customer_id="555...")]
+Você: Mostra customer_message
+
+⚠️ IMPORTANTE: Após calculate_best_budget, PARE de chamar ferramentas até usuário responder!
 """
             }
         ] + history
@@ -171,8 +176,9 @@ Você: Mostra APENAS customer_message
         """
         Processa mensagens com MCP, permitindo múltiplas chamadas de ferramentas.
         """
-        max_iterations = 5  # Prevenir loops infinitos
+        max_iterations = 10  # Aumentado para permitir mais interações
         iteration = 0
+        tool_call_history = []  # Detectar loops
         
         while iteration < max_iterations:
             iteration += 1
@@ -215,6 +221,13 @@ Você: Mostra APENAS customer_message
             for tool_call in assistant_message.tool_calls:
                 tool_name = tool_call.function.name
                 arguments = json.loads(tool_call.function.arguments)
+                
+                # Detectar loop: mesma ferramenta com mesmos argumentos
+                call_signature = f"{tool_name}:{json.dumps(arguments, sort_keys=True)}"
+                if call_signature in tool_call_history[-3:]:  # Últimas 3 chamadas
+                    logger.warning(f"Loop detectado: {call_signature}")
+                    return "Desculpe, encontrei um problema ao processar sua solicitação. Pode reformular?"
+                tool_call_history.append(call_signature)
                 
                 logger.info(f"Executando: {tool_name}({arguments})")
                 

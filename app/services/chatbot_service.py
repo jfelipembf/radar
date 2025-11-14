@@ -302,7 +302,7 @@ Exemplo: Cliente diz "500L e CP-III"
         })
 
         # Salvar produtos filtrados como estado normal
-        await self.product_service._save_conversation_state_for_products(user_id, filtered_products)
+        await self.chatbot_service.product_service._save_conversation_state_for_products(user_id, filtered_products)
 
         # Formatar catálogo com produtos filtrados
         model_context, user_message = format_product_catalog(filtered_products, self.chatbot_service.supabase_service)

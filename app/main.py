@@ -347,12 +347,47 @@ def _extract_search_terms(text: Optional[str]) -> List[str]:
         if word not in seen:
             terms.append(word)
             seen.add(word)
-
     return terms[:10]
+
+
+async def _should_search_products(message: str) -> bool:
+    """Pergunta à IA se deve buscar produtos baseado na mensagem do usuário."""
+    if not openai_service:
+        return False
+
+    prompt = f"""
+Você é um assistente de chatbot para uma loja de materiais de construção.
+
+Analise a seguinte mensagem do usuário e determine se ela indica interesse em:
+- Comprar ou consultar preços de materiais/produtos de construção
+- Perguntar sobre disponibilidade de produtos
+- Buscar informações sobre itens da loja
+
+IMPORTANTE: Responda apenas com "SIM" ou "NAO" (sem aspas).
+
+Mensagem do usuário: "{message}"
+
+A mensagem indica interesse em produtos de construção?
+""".strip()
+
+    try:
+        response = await openai_service.generate_response(message=prompt)
+        result = response.strip().upper()
+        logger.debug("Catálogo → IA resposta para '%s': %s", message, result)
+        return result == "SIM"
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Erro ao consultar IA sobre busca de produtos: %s", exc)
+        return False
 
 
 async def _build_product_context(search_text: Optional[str]) -> Optional[Dict[str, Optional[str]]]:
     if not supabase_service or not search_text:
+        return None
+
+    # Primeiro, perguntar à IA se deve buscar produtos
+    should_search = await _should_search_products(search_text)
+    if not should_search:
+        logger.info("Catálogo → IA decidiu não buscar produtos para: %s", search_text)
         return None
 
     terms = _extract_search_terms(search_text)

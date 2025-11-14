@@ -88,6 +88,70 @@ class ProductMCPServer:
                         "required": ["category"]
                     }
                 }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "calculate_best_budget",
+                    "description": "Calcula o melhor orçamento agrupando produtos por loja e retorna a loja mais barata. Use após adicionar todos os produtos ao orçamento.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "products": {
+                                "type": "array",
+                                "description": "Lista de produtos adicionados ao orçamento",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "name": {"type": "string"},
+                                        "price": {"type": "number"},
+                                        "store": {"type": "string"},
+                                        "quantity": {"type": "integer", "default": 1}
+                                    }
+                                }
+                            }
+                        },
+                        "required": ["products"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "finalize_purchase",
+                    "description": "Finaliza a compra preparando mensagens para cliente e loja. Use quando o usuário escolher finalizar (opção 1).",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "store_name": {
+                                "type": "string",
+                                "description": "Nome da loja escolhida"
+                            },
+                            "products": {
+                                "type": "array",
+                                "description": "Lista de produtos da loja",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "name": {"type": "string"},
+                                        "price": {"type": "number"},
+                                        "unit": {"type": "string"},
+                                        "quantity": {"type": "integer", "default": 1}
+                                    }
+                                }
+                            },
+                            "total": {
+                                "type": "number",
+                                "description": "Valor total do orçamento"
+                            },
+                            "customer_id": {
+                                "type": "string",
+                                "description": "ID do cliente (telefone)"
+                            }
+                        },
+                        "required": ["store_name", "products", "total", "customer_id"]
+                    }
+                }
             }
         ]
     
@@ -270,6 +334,161 @@ class ProductMCPServer:
                 "category": category
             }
     
+    def calculate_best_budget(self, products: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Calcula o melhor orçamento agrupando produtos por loja.
+        
+        Args:
+            products: Lista de produtos com name, price, store, quantity
+            
+        Returns:
+            Dict com orçamento por loja e loja mais barata
+        """
+        try:
+            logger.info(f"MCP - calculate_best_budget: {len(products)} produtos")
+            
+            from collections import defaultdict
+            
+            # Agrupar por loja
+            stores = defaultdict(lambda: {"products": [], "total": 0.0})
+            
+            for product in products:
+                store_name = product.get("store", "Loja Desconhecida")
+                quantity = product.get("quantity", 1)
+                price = float(product.get("price", 0))
+                
+                stores[store_name]["products"].append({
+                    "name": product.get("name"),
+                    "price": price,
+                    "quantity": quantity,
+                    "subtotal": price * quantity
+                })
+                stores[store_name]["total"] += price * quantity
+            
+            # Converter para lista e ordenar por total
+            stores_list = [
+                {
+                    "store": store_name,
+                    "products": data["products"],
+                    "total": data["total"]
+                }
+                for store_name, data in stores.items()
+            ]
+            stores_list.sort(key=lambda x: x["total"])
+            
+            result = {
+                "success": True,
+                "stores": stores_list,
+                "cheapest_store": stores_list[0] if stores_list else None,
+                "total_stores": len(stores_list)
+            }
+            
+            logger.info(f"MCP - Loja mais barata: {stores_list[0]['store'] if stores_list else 'N/A'}")
+            return result
+            
+        except Exception as exc:
+            logger.error(f"MCP - Erro em calculate_best_budget: {exc}")
+            return {
+                "success": False,
+                "error": str(exc)
+            }
+    
+    def finalize_purchase(
+        self,
+        store_name: str,
+        products: List[Dict[str, Any]],
+        total: float,
+        customer_id: str
+    ) -> Dict[str, Any]:
+        """
+        Finaliza compra preparando mensagens para cliente e loja.
+        
+        Args:
+            store_name: Nome da loja
+            products: Lista de produtos
+            total: Valor total
+            customer_id: ID do cliente
+            
+        Returns:
+            Dict com mensagens e link WhatsApp
+        """
+        try:
+            logger.info(f"MCP - finalize_purchase: {store_name}, total: R$ {total}")
+            
+            # Buscar telefone da loja
+            store_phone = None
+            try:
+                # Buscar loja no Supabase
+                stores = self.supabase_service.supabase.table("stores").select("phone").eq("name", store_name).execute()
+                if stores.data and len(stores.data) > 0:
+                    store_phone = stores.data[0].get("phone", "").replace("+", "").replace(" ", "").replace("-", "")
+            except Exception as exc:
+                logger.warning(f"Erro ao buscar telefone da loja: {exc}")
+            
+            # Formatar lista de produtos
+            products_list = []
+            for p in products:
+                name = p.get("name", "Produto")
+                price = p.get("price", 0)
+                unit = p.get("unit", "unidade")
+                quantity = p.get("quantity", 1)
+                
+                if quantity > 1:
+                    products_list.append(f"• {name}: R$ {price:.2f} por {unit} (x{quantity})")
+                else:
+                    products_list.append(f"• {name}: R$ {price:.2f} por {unit}")
+            
+            products_text = "\n".join(products_list)
+            
+            # Mensagem para a LOJA
+            store_message = f"""🛒 *NOVA SOLICITAÇÃO DE ORÇAMENTO*
+
+📞 *Cliente:* {customer_id}
+
+📦 *Produtos solicitados:*
+{products_text}
+
+💰 *Valor total estimado: R$ {total:.2f}*
+
+📱 Cliente será direcionado via WhatsApp."""
+            
+            # Mensagem para o CLIENTE
+            customer_message = f"""✅ Compra finalizada - {store_name}
+
+📦 Produtos selecionados:
+{products_text}
+
+💰 *Valor total: R$ {total:.2f}*
+
+📱 Você será direcionado para o WhatsApp da loja para finalizar a compra.
+Envie esta lista diretamente para a loja!"""
+            
+            # Link WhatsApp
+            whatsapp_link = None
+            if store_phone:
+                import urllib.parse
+                encoded_message = urllib.parse.quote(store_message)
+                whatsapp_link = f"https://wa.me/{store_phone}?text={encoded_message}"
+                customer_message += f"\n\n🔗 {whatsapp_link}"
+            
+            result = {
+                "success": True,
+                "store_message": store_message,
+                "customer_message": customer_message,
+                "whatsapp_link": whatsapp_link,
+                "store_phone": store_phone
+            }
+            
+            logger.info(f"MCP - Compra finalizada com sucesso")
+            return result
+            
+        except Exception as exc:
+            logger.error(f"MCP - Erro em finalize_purchase: {exc}")
+            return {
+                "success": False,
+                "error": str(exc)
+            }
+    
     def execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """
         Executa uma ferramenta do MCP.
@@ -289,6 +508,10 @@ class ProductMCPServer:
             return self.get_product_variations(**arguments)
         elif tool_name == "get_cheapest_product":
             return self.get_cheapest_product(**arguments)
+        elif tool_name == "calculate_best_budget":
+            return self.calculate_best_budget(**arguments)
+        elif tool_name == "finalize_purchase":
+            return self.finalize_purchase(**arguments)
         else:
             return {
                 "success": False,

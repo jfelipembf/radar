@@ -274,8 +274,8 @@ class ChatbotService:
 
     async def _schedule_user_processing(self, user_id: str):
         """Agenda processamento debounced com typing indicator."""
-        # Enviar status "composing" durante o processamento
-        await self._update_presence(user_id, "composing")
+        # Enviar status "composing" durante o processamento com delay longo
+        await self._update_presence(user_id, "composing", 20000)  # 20 segundos como no N8N
 
         # Aguardar debounce de 10 segundos
         await asyncio.sleep(10)

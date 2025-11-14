@@ -422,6 +422,13 @@ class ProductService:
 
                 if variation_analysis["needs_clarification"]:
                     logger.info("IA detectou necessidade de esclarecimento inicial")
+                    logger.info(f"Análise completa retornada: {variation_analysis}")
+
+                    # Verificar se tem clarification_message
+                    clarification_msg = variation_analysis.get("clarification_message")
+                    if not clarification_msg:
+                        logger.error(f"IA não retornou clarification_message: {variation_analysis}")
+                        clarification_msg = "Poderia especificar mais detalhes sobre os produtos?"
 
                     self.conversation_manager.update_user_state(user_id, {
                         "pending_products": unique_products,
@@ -433,7 +440,7 @@ class ProductService:
 
                     return {
                         "model": f"Produtos encontrados, IA identificou necessidade de esclarecimento",
-                        "user": variation_analysis["clarification_message"]
+                        "user": clarification_msg
                     }
                 else:
                     # IA não viu necessidade de esclarecimento - mostrar orçamento direto

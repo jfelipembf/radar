@@ -8,6 +8,7 @@ from app.business.construction_rules import (
     should_search_products,
     extract_product_names,
     extract_product_specifications,
+    extract_product_variations,
     format_product_catalog,
     analyze_product_variations,
 )
@@ -231,6 +232,46 @@ class MessageHandler:
         current_category = state.get("current_category")
         clarified_categories = state.get("clarified_categories", [])
         selected_products = state.get("selected_products", [])
+
+        # Verificar se é uma pergunta sobre opções disponíveis
+        text_lower = text.lower().strip()
+        is_asking_options = any(word in text_lower for word in [
+            "quais", "qual", "que tipo", "tipos", "opções", "opcoes", 
+            "tem", "têm", "existe", "existem", "disponível", "disponivel"
+        ])
+        
+        if is_asking_options:
+            logger.info(f"Usuário perguntou sobre opções disponíveis: '{text}'")
+            
+            # Filtrar produtos da categoria atual
+            category_products = [
+                p for p in pending_products
+                if current_category and current_category.lower() in p.get("name", "").lower()
+            ]
+            
+            if category_products:
+                # USAR IA PARA EXTRAIR VARIAÇÕES DINAMICAMENTE
+                variations = await extract_product_variations(
+                    category_products,
+                    current_category,
+                    self.chatbot_service.openai_service
+                )
+                
+                logger.info(f"IA extraiu {len(variations)} variações para '{current_category}': {variations}")
+                
+                if variations:
+                    options_list = "\n".join([f"- {v}" for v in variations])
+                    selected_message = format_selected_products(selected_products) if selected_products else ""
+                    
+                    response = f"Temos as seguintes opções de {current_category}:\n\n{options_list}\n\nQual você prefere?"
+                    
+                    if selected_message:
+                        return f"{selected_message}\n\n{response}"
+                    return response
+                else:
+                    # IA não encontrou variações significativas - mostrar produtos diretamente
+                    products_list = "\n".join([f"- {p.get('name', 'Produto')}" for p in category_products[:5]])
+                    return f"Temos estas opções:\n\n{products_list}\n\nQual você prefere?"
 
         # Usar IA para filtrar produtos baseado na resposta
         conversation_history = await self.chatbot_service._build_message_history(user_id)
@@ -497,37 +538,47 @@ class ProductService:
                     category_products = products_by_category[matched_category]
                     logger.info(f"  Categoria '{matched_category}' tem {len(category_products)} produtos")
                     
-                    # Filtrar produtos que contenham a especificação
-                    spec_lower = specification.lower()
-                    matching_products = []
+                    # USAR IA PARA EXTRAIR VARIAÇÕES DINAMICAMENTE
+                    variations = await extract_product_variations(
+                        category_products,
+                        matched_category,
+                        self.chatbot_service.openai_service
+                    )
                     
-                    for p in category_products:
-                        p_name = p.get("name", "").lower()
-                        p_desc = p.get("description", "").lower()
+                    logger.info(f"  IA extraiu {len(variations)} variações para '{matched_category}': {variations}")
+                    
+                    if variations:
+                        # Filtrar produtos que contenham a especificação
+                        spec_lower = specification.lower()
+                        matching_products = []
                         
-                        if spec_lower in p_name or spec_lower in p_desc:
-                            matching_products.append(p)
-                            logger.info(f"    ✅ Match: '{p.get('name')}' contém '{specification}'")
+                        for p in category_products:
+                            p_name = p.get("name", "").lower()
+                            p_desc = p.get("description", "").lower()
+                            
+                            if spec_lower in p_name or spec_lower in p_desc:
+                                matching_products.append(p)
+                                logger.info(f"    ✅ Match: '{p.get('name')}' contém '{specification}'")
+                            else:
+                                logger.info(f"    ❌ No match: '{p.get('name')}' não contém '{specification}'")
+                        
+                        if matching_products:
+                            # Pegar o mais barato
+                            cheapest = min(matching_products, key=lambda x: _coerce_price(x.get("price", 0)))
+                            selected_products.append({
+                                "type": f"{category.title()} {specification}",
+                                "product": cheapest,
+                                "price": _coerce_price(cheapest.get("price", 0)),
+                                "store": cheapest.get("store", {}).get("name", "Loja"),
+                                "quantity": 1
+                            })
+                            clarified_categories.append(matched_category)
+                            logger.info(f"  ✅ Produto especificado adicionado: {category} {specification} - {cheapest.get('name')}")
                         else:
-                            logger.info(f"    ❌ No match: '{p.get('name')}' não contém '{specification}'")
-                    
-                    if matching_products:
-                        # Pegar o mais barato
-                        cheapest = min(matching_products, key=lambda x: _coerce_price(x.get("price", 0)))
-                        selected_products.append({
-                            "type": f"{category.title()} {specification}",
-                            "product": cheapest,
-                            "price": _coerce_price(cheapest.get("price", 0)),
-                            "store": cheapest.get("store", {}).get("name", "Loja"),
-                            "quantity": 1
-                        })
-                        clarified_categories.append(matched_category)
-                        logger.info(f"  ✅ Produto especificado adicionado: {category} {specification} - {cheapest.get('name')}")
-                    else:
-                        # Não encontrou produto com a especificação, adicionar para esclarecimento
-                        products_to_clarify.extend(category_products)
-                        logger.warning(f"  ⚠️ Produto '{category}' especificado mas não encontrado com '{specification}'")
-                        logger.warning(f"  Produtos disponíveis: {[p.get('name') for p in category_products[:3]]}")
+                            # Não encontrou produto com a especificação, adicionar para esclarecimento
+                            products_to_clarify.extend(category_products)
+                            logger.warning(f"  ⚠️ Produto '{category}' especificado mas não encontrado com '{specification}'")
+                            logger.warning(f"  Produtos disponíveis: {[p.get('name') for p in category_products[:3]]}")
 
             # Para categorias NÃO especificadas, verificar se há variações e adicionar para esclarecimento
             # Comparar de forma normalizada

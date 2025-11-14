@@ -317,10 +317,100 @@ Se NÃO HÁ NENHUMA variação significativa a esclarecer, retorne:
         return {"needs_clarification": False, "variations": {}, "message": ""}
 
 
+async def extract_product_variations(products: List[Dict[str, Any]], category: str, openai_service: "OpenAIService") -> List[str]:
+    """Extrai variações únicas de produtos usando IA.
+    
+    Args:
+        products: Lista de produtos da mesma categoria
+        category: Nome da categoria (ex: "cimento", "areia")
+        openai_service: Serviço OpenAI
+        
+    Returns:
+        Lista de variações únicas encontradas
+        Exemplo: ["CP-II", "CP-III", "CP-V"] ou ["Lavada", "Grossa", "Fina"]
+    """
+    if not openai_service or not products:
+        return []
+
+    # Preparar lista de nomes de produtos
+    product_names = [p.get("name", "") for p in products[:20]]  # Limitar a 20 para não sobrecarregar
+    products_text = "\n".join([f"- {name}" for name in product_names if name])
+    
+    prompt = f"""
+Você é um assistente especializado em identificar variações de produtos.
+
+Analise a lista de produtos abaixo da categoria "{category}" e identifique as VARIAÇÕES PRINCIPAIS que diferenciam esses produtos.
+
+PRODUTOS:
+{products_text}
+
+TAREFA:
+Identifique as variações principais que o cliente precisa escolher. Por exemplo:
+- Para cimento: tipos (CP-II, CP-III, CP-V)
+- Para areia: características (lavada, grossa, fina)
+- Para caixa d'água: capacidades (500L, 1000L, 2000L)
+- Para tinta: tipos (acrílica, latex, esmalte)
+- Para tijolo: tamanhos (6 furos, 8 furos, maciço)
+
+IMPORTANTE:
+- Extraia APENAS as variações relevantes que aparecem nos nomes dos produtos
+- Normalize os nomes (ex: "cp ii" → "CP-II", "lavada" → "Lavada")
+- Ignore variações de preço, loja ou marca
+- Retorne apenas as opções que o cliente precisa escolher
+- Se não houver variações significativas, retorne lista vazia
+
+RESPONDA APENAS com uma lista JSON de strings:
+["variação1", "variação2", "variação3"]
+
+EXEMPLOS:
+
+Produtos de cimento:
+- Cimento CP-II 50kg
+- Cimento CP-III 50kg
+- Cimento CP-V ARI 50kg
+Resposta: ["CP-II", "CP-III", "CP-V"]
+
+Produtos de areia:
+- Areia Lavada m³
+- Areia Grossa m³
+- Areia Fina m³
+Resposta: ["Lavada", "Grossa", "Fina"]
+
+Produtos iguais:
+- Argamassa AC-II 20kg - Loja A
+- Argamassa AC-II 20kg - Loja B
+Resposta: []
+""".strip()
+
+    try:
+        response = await openai_service.generate_response(message=prompt)
+        result = response.strip()
+        
+        logger.info(f"IA - Variações extraídas para '{category}': {result}")
+        
+        # Parse JSON
+        import json
+        
+        # Limpar markdown se necessário
+        if result.startswith("```"):
+            result = result.replace("```json", "").replace("```", "").strip()
+        
+        variations = json.loads(result)
+        
+        if isinstance(variations, list):
+            return [str(v) for v in variations if v]
+        
+        return []
+    except Exception as exc:
+        logger.error(f"Erro ao extrair variações: {exc}")
+        return []
+
+
 __all__ = [
     "should_search_products",
     "extract_product_names",
     "extract_product_specifications",
+    "extract_product_variations",
     "format_product_catalog",
     "analyze_product_variations",
 ]

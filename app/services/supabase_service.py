@@ -122,7 +122,7 @@ class SupabaseService:
             params["segment"] = f"eq.{segment}"
 
         if search_terms:
-            sanitized = []
+            sanitized_terms: List[str] = []
             for term in search_terms:
                 clean = term.strip().lower()
                 if not clean:
@@ -130,16 +130,21 @@ class SupabaseService:
                 clean = "".join(ch for ch in clean if ch.isalnum() or ch in {" ", "-", "_"})
                 if not clean:
                     continue
-                sanitized.append(clean)
+                sanitized_terms.append(clean)
 
-            if sanitized:
-                filters = []
-                for term in sanitized:
+            if sanitized_terms:
+                or_clauses: List[str] = []
+                for term in sanitized_terms:
                     pattern = f"%{term}%"
-                    filters.append(f"name.ilike.{pattern}")
-                    filters.append(f"description.ilike.{pattern}")
-                    filters.append(f"brand.ilike.{pattern}")
-                params["or"] = ",".join(filters)
+                    clause = "|".join([
+                        f"name.ilike.{pattern}",
+                        f"description.ilike.{pattern}",
+                        f"brand.ilike.{pattern}",
+                    ])
+                    or_clauses.append(f"and({clause})")
+
+                if or_clauses:
+                    params["or"] = ",".join(or_clauses)
 
         url = f"{self._rest_base}/products"
         logger.debug(

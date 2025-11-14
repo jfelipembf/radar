@@ -60,14 +60,14 @@ class ChatbotService:
             logger.debug(f"Generated response: {response_text[:100]}{'...' if len(response_text) > 100 else ''}")
             return response_text
 
-        # Verificar saudação diária
+        # PRIMEIRO: ENVIAR indicador de processamento
+        await self._send_whatsapp_message(user_id, "🔄 *Processando sua solicitação...*")
+
+        # Verificar saudação diária (pode enviar mensagem se necessário)
         await self._maybe_send_daily_greeting(user_id)
 
         # Registrar mensagem temporária
         await self._record_temp_message(user_id, text, message_data)
-
-        # Enviar mensagem de processamento para indicar que está pensando
-        await self._send_whatsapp_message(user_id, "🔄 *Processando sua solicitação...*")
 
         # Agendar processamento (debounced)
         await self._schedule_user_processing(user_id)

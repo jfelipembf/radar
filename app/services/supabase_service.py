@@ -104,6 +104,55 @@ class SupabaseService:
             return None
         return data[0]
 
+    def get_products(
+        self,
+        segment: Optional[str] = None,
+        search_terms: Optional[List[str]] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """Busca produtos cadastrados, opcionalmente filtrando por segmento e termos."""
+
+        params: Dict[str, Any] = {
+            "select": "id,segment,sector,name,description,brand,unit_label,price,updated_at,delivery_info,store_phone,store:stores(name,phone)",
+            "order": "name.asc",
+            "limit": str(limit),
+        }
+
+        if segment:
+            params["segment"] = f"eq.{segment}"
+
+        if search_terms:
+            sanitized = []
+            for term in search_terms:
+                clean = term.strip().lower()
+                if not clean:
+                    continue
+                clean = "".join(ch for ch in clean if ch.isalnum() or ch in {" ", "-", "_"})
+                if not clean:
+                    continue
+                sanitized.append(clean)
+
+            if sanitized:
+                filters = []
+                for term in sanitized:
+                    pattern = f"%{term}%"
+                    filters.append(f"name.ilike.{pattern}")
+                    filters.append(f"description.ilike.{pattern}")
+                    filters.append(f"brand.ilike.{pattern}")
+                params["or"] = ",".join(filters)
+
+        url = f"{self._rest_base}/products"
+        logger.debug(
+            "Supabase → buscando produtos (segment=%s search_terms=%s)",
+            segment,
+            search_terms,
+        )
+        response = requests.get(url, headers=self._headers, params=params, timeout=10)
+        if not response.ok:
+            logger.error("Supabase → erro ao buscar produtos: %s", response.text)
+            response.raise_for_status()
+        return response.json()
+
     def delete_temp_messages(self, message_ids: List[str]) -> None:
         """Remove mensagens temporárias processadas."""
         if not message_ids:

@@ -1,6 +1,7 @@
 import os
 import logging
 import asyncio
+from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
@@ -215,6 +216,11 @@ async def process_debounced_messages(user_id: str) -> None:
     if consolidated:
         history.append(consolidated)
 
+    search_source = consolidated["content"] if consolidated else _latest_user_content(history)
+    product_context = await _build_product_context(search_source)
+    if product_context:
+        history.append({"role": "system", "content": product_context})
+
     response_text = await openai_service.generate_response(history=history)
     logger.info("Generated response after debounce for %s: %s", user_id, response_text)
 
@@ -305,6 +311,156 @@ def _consolidate_temp_messages(messages: List[dict]) -> Optional[Dict[str, str]]
         "content": " ".join(texts).strip(),
         "created_at": created_at,
     }
+
+
+def _extract_search_terms(text: Optional[str]) -> List[str]:
+    if not text:
+        return []
+
+    normalized = text.strip().lower()
+    if not normalized:
+        return []
+
+    sanitized_text = "".join(ch if ch.isalnum() or ch in {" ", "-", "_"} else " " for ch in normalized)
+    words = [word for word in sanitized_text.split() if len(word) > 2]
+    if not words:
+        return []
+
+    terms: List[str] = []
+    seen = set()
+
+    phrase = " ".join(words)
+    if phrase and phrase not in seen:
+        terms.append(phrase)
+        seen.add(phrase)
+
+    for word in words:
+        if word not in seen:
+            terms.append(word)
+            seen.add(word)
+
+    return terms[:10]
+
+
+async def _build_product_context(search_text: Optional[str]) -> Optional[str]:
+    if not supabase_service or not search_text:
+        return None
+
+    terms = _extract_search_terms(search_text)
+    if not terms:
+        return None
+
+    try:
+        products = await asyncio.to_thread(
+            supabase_service.get_products,
+            "material_construcao",
+            terms,
+            40,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Erro ao buscar catálogo de produtos: %s", exc)
+        return None
+
+    return _format_product_catalog(products)
+
+
+def _format_product_catalog(products: List[Dict[str, Any]]) -> Optional[str]:
+    if not products:
+        return None
+
+    grouped: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for product in products:
+        name = product.get("name")
+        if not name:
+            continue
+        grouped[name].append(product)
+
+    if not grouped:
+        return None
+
+    lines: List[str] = [
+        "CATÁLOGO SUPABASE",
+        "Loja e preço por produto encontrado:",
+    ]
+
+    for product_name in sorted(grouped.keys()):
+        lines.append("")
+        lines.append(f"Produto: {product_name}")
+
+        entries = []
+        for product in grouped[product_name]:
+            store_info = product.get("store") or {}
+            store_name = store_info.get("name") or "Loja"
+            phone = _format_phone(product.get("store_phone") or store_info.get("phone"))
+            price_value = _coerce_price(product.get("price"))
+            price_str = _format_currency(price_value)
+            unit_label = product.get("unit_label") or "unidade"
+            updated_at = _parse_created_at(product.get("updated_at"))
+            updated_str = _format_date(updated_at)
+            delivery = product.get("delivery_info") or "Entrega a combinar"
+
+            entries.append({
+                "store_name": store_name,
+                "phone": phone,
+                "price": price_value,
+                "price_str": price_str,
+                "unit_label": unit_label,
+                "updated": updated_str,
+                "delivery": delivery,
+            })
+
+        entries.sort(key=lambda item: item["price"])
+
+        for index, entry in enumerate(entries):
+            highlight = " ← melhor preço" if index == 0 else ""
+            phone_part = f" ({entry['phone']})" if entry["phone"] else ""
+            lines.append(
+                f"• {entry['store_name']}{phone_part}: {entry['price_str']} por {entry['unit_label']} | atual. {entry['updated']} | frete: {entry['delivery']}{highlight}"
+            )
+
+    return "\n".join(lines)
+
+
+def _coerce_price(value: Any) -> float:
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            cleaned = value.replace("R$", "").strip()
+            cleaned = cleaned.replace(".", "").replace(",", ".")
+            return float(cleaned)
+        except ValueError:
+            return 0.0
+    return 0.0
+
+
+def _format_currency(value: float) -> str:
+    formatted = f"{value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"R$ {formatted}"
+
+
+def _format_date(dt: Optional[datetime]) -> str:
+    if not dt:
+        return "-"
+    return dt.astimezone(LOCAL_ZONE).strftime("%d/%m/%Y")
+
+
+def _format_phone(phone: Optional[str]) -> str:
+    if not phone:
+        return ""
+    digits = "".join(ch for ch in str(phone) if ch.isdigit())
+    if not digits:
+        return ""
+    if not digits.startswith("55"):
+        digits = f"55{digits}"
+    return digits
+
+
+def _latest_user_content(history: List[Dict[str, Any]]) -> Optional[str]:
+    for message in reversed(history):
+        if message.get("role") == "user" and message.get("content"):
+            return str(message["content"])
+    return None
 
 
 def _parse_created_at(value: Optional[str]) -> Optional[datetime]:

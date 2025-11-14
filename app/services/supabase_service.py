@@ -121,6 +121,17 @@ class SupabaseService:
         if segment:
             params["segment"] = f"eq.{segment}"
 
+        # Se há termos de busca, adicionar filtro OR para cada termo
+        if search_terms:
+            # Criar filtro OR para buscar produtos que contenham qualquer um dos termos
+            or_conditions = []
+            for term in search_terms:
+                # Usar ilike para busca case-insensitive
+                or_conditions.append(f"name.ilike.%{term}%")
+
+            if or_conditions:
+                params["or"] = f"({','.join(or_conditions)})"
+
         url = f"{self._rest_base}/products"
         logger.debug(
             "Supabase → buscando produtos (segment=%s search_terms=%s)",

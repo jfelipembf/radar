@@ -238,14 +238,18 @@ class MessageHandler:
         logger.info(f"Categorias já esclarecidas: {clarified_categories}")
 
         # Buscar produtos específicos baseado na resposta do usuário
-        # Usar a categoria atual para fazer uma busca mais precisa
-        if current_category and current_category != "produto":
+        # Estratégia mais inteligente: se é uma especificação (números, tipos), buscar por ela
+        # Se é uma categoria, manter como está
+        if text.isdigit() or any(char in text.lower() for char in ['l', 'kg', 'cp-', 'm³', 'm3']):
+            # Parece uma especificação (500L, CP-II, 50kg, etc.)
+            # Buscar por essa especificação nos produtos da categoria
+            search_text = text.strip()
+        elif current_category and current_category != "produto":
             search_text = f"{current_category} {text}".strip()
         else:
-            # Fallback se não temos categoria específica
             search_text = text.strip()
 
-        logger.info(f"Buscando produtos com query: '{search_text}'")
+        logger.info(f"Buscando produtos com query: '{search_text}' para categoria '{current_category}'")
 
         try:
             # Buscar produtos no banco baseado na resposta
@@ -257,6 +261,8 @@ class MessageHandler:
             )
 
             logger.info(f"Produtos encontrados para '{search_text}': {len(found_products)}")
+            if found_products:
+                logger.info(f"Primeiro produto encontrado: {found_products[0].get('name', 'N/A')}")
 
             if found_products:
                 # Pegar o produto mais barato encontrado

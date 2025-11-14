@@ -220,6 +220,62 @@ def format_all_stores_details(store_totals: dict) -> str:
     return "\n".join(lines)
 
 
+def format_product_catalog_with_budget(store_totals: dict) -> str:
+    """Formata orçamento completo usando dados salvos do store_totals."""
+    if not store_totals:
+        return "Não foi possível recuperar os dados do orçamento. Por favor, faça uma nova busca."
+
+    # Encontrar loja mais barata
+    sorted_stores = sorted(store_totals.items(), key=lambda x: x[1]["total"])
+    cheapest_store = sorted_stores[0] if sorted_stores else None
+
+    lines = []
+    lines.append("🏪 ORÇAMENTO COMPLETO DE MATERIAIS DE CONSTRUÇÃO")
+    lines.append("")
+
+    # Mostrar resumo por loja
+    lines.append(f"Encontrei as seguintes opções em {len(store_totals)} loja(s) disponível(is):")
+    lines.append("")
+
+    for i, (store_name, store_data) in enumerate(sorted_stores, 1):
+        total = store_data["total"]
+        emoji = "⭐" if i == 1 else ""
+        label = "MAIS BARATA" if i == 1 else ""
+        lines.append(f"🏪 {store_name} {emoji} {label}")
+        lines.append(f"💰 Total estimado: R$ {total:.2f}")
+        lines.append("")
+
+    # Detalhes da loja mais barata
+    if cheapest_store:
+        store_name, store_data = cheapest_store
+        lines.append(f"⭐ DETALHES DO MELHOR PREÇO - {store_name}")
+        lines.append("")
+
+        lines.append("📦 Produtos:")
+        for product in store_data["products"]:
+            lines.append(f"• {product['name']}: R$ {product['price']:.2f}")
+
+        lines.append("")
+        lines.append(f"💰 Total: R$ {store_data['total']:.2f}")
+        lines.append("")
+
+        # Informações de contato
+        store_info = store_data.get("store_info", {})
+        if store_info.get("phone"):
+            lines.append("📱 Contato:")
+            lines.append(f"WhatsApp: {store_info['phone']}")
+
+    lines.append("")
+    lines.append("📋 Opções:")
+    lines.append("1️⃣ Finalizar compra da loja mais barata")
+    lines.append("2️⃣ Ver detalhes do melhor preço")
+    lines.append("3️⃣ Ver detalhes de todas as lojas")
+    lines.append("")
+    lines.append("Digite o número da opção desejada:")
+
+    return "\n".join(lines)
+
+
 def get_menu_options() -> Dict[str, str]:
     """Retorna opções do menu principal."""
     return {
@@ -235,5 +291,6 @@ __all__ = [
     "create_whatsapp_link",
     "format_best_price_details",
     "format_all_stores_details",
+    "format_product_catalog_with_budget",
     "get_menu_options"
 ]

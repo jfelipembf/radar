@@ -15,6 +15,7 @@ from app.business.message_templates import (
     create_whatsapp_link,
     format_best_price_details,
     format_all_stores_details,
+    format_product_catalog_with_budget,
     get_menu_options,
 )
 from app.utils.formatters import _coerce_price, _format_currency, _format_date, _format_phone, _parse_created_at
@@ -558,6 +559,20 @@ class ChatbotService:
 
         # Encontrar texto para busca de produtos
         search_source = consolidated["content"] if consolidated else _latest_user_content(history)
+
+        # VERIFICAR SE USUÁRIO ESTÁ PEDINDO ORÇAMENTO SALVO
+        user_text = search_source.lower()
+        budget_keywords = ["orcamento", "orçamento", "preco", "preço", "valor", "custo", "total", "completo", "tudo"]
+
+        state = self.conversation_manager.get_user_state(user_id)
+        if state.get("store_totals") and any(keyword in user_text for keyword in budget_keywords):
+            logger.info("Usuário pedindo orçamento salvo - mostrando orçamento completo")
+            # Mostrar orçamento completo salvo
+            response_text = format_product_catalog_with_budget(state["store_totals"])
+            await self._cleanup_and_save(user_id, temp_messages, consolidated, response_text)
+            await self._send_whatsapp_message(user_id, response_text)
+            await self._update_presence(user_id, "paused")
+            return response_text
 
         # Buscar produtos usando ProductService
         catalog_context = await self.product_service.build_product_context(user_id, search_source)

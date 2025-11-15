@@ -116,34 +116,56 @@ class ProductMCPServer:
             
             from collections import defaultdict
             
-            # Buscar cada produto em TODAS as lojas
+            # OTIMIZAÇÃO: Coletar TODAS as keywords de uma vez
+            all_keywords = []
+            for product_request in products:
+                all_keywords.extend(product_request.get("keywords", []))
+            
+            if not all_keywords:
+                logger.warning("Nenhuma keyword fornecida")
+                return {
+                    "success": True,
+                    "stores": [],
+                    "cheapest_store": None,
+                    "total_stores": 0
+                }
+            
+            # 1 QUERY para buscar TODOS os produtos de uma vez
+            logger.info(f"MCP - Buscando todos os produtos com keywords: {all_keywords}")
+            all_products = self.supabase_service.search_products_by_keywords(
+                keywords=all_keywords,
+                limit=200  # Buscar mais para cobrir todas as lojas
+            )
+            
+            if not all_products:
+                logger.warning("Nenhum produto encontrado")
+                return {
+                    "success": True,
+                    "stores": [],
+                    "cheapest_store": None,
+                    "total_stores": 0
+                }
+            
+            logger.info(f"MCP - Encontrados {len(all_products)} produtos no total")
+            
+            # Agrupar produtos por loja e por produto solicitado
             all_products_by_store = defaultdict(lambda: {"products": [], "total": 0.0, "has_all": True})
             
             for product_request in products:
                 keywords = product_request.get("keywords", [])
                 quantity = product_request.get("quantity", 1)
                 
-                # Buscar este produto em todas as lojas
-                search_result = self.supabase_service.search_products_by_keywords(
-                    keywords=keywords,
-                    limit=50  # Buscar em várias lojas
-                )
-                
-                if not search_result:
-                    logger.warning(f"Produto não encontrado: {keywords}")
-                    continue
-                
-                # Filtrar produtos que têm TODAS as keywords
+                # Filtrar produtos que correspondem a ESTE produto solicitado
                 filtered_products = []
-                for product in search_result:
+                for product in all_products:
                     if match_all_keywords(product, keywords):
                         filtered_products.append(product)
                 
                 if not filtered_products:
-                    logger.warning(f"Nenhum produto com TODAS as keywords: {keywords}")
+                    logger.warning(f"Nenhum produto encontrado para: {keywords}")
                     continue
                 
-                # Agrupar por loja
+                # Agrupar por loja (mais barato de cada)
                 stores_with_product = {}
                 for product in filtered_products:
                     store_name = product.get("store", {}).get("name", "Loja")

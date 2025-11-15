@@ -32,7 +32,14 @@ BASE_BUDGET_INSTRUCTIONS = """
    - PARE e aguarde resposta
 
 2️⃣ SE USUÁRIO DIGITAR "1" (finalizar):
-   - Use finalize_purchase com dados da loja mais barata
+   - Use finalize_purchase com dados de result.cheapest_store
+   - Exemplo:
+     finalize_purchase(
+       store_name=result.cheapest_store.store,
+       products=result.cheapest_store.products,
+       total=result.cheapest_store.total,
+       customer_id=user_phone
+     )
    - Mostre APENAS customer_message
 
 ⚠️ REGRAS CRÍTICAS:

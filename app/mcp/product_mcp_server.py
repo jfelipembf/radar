@@ -6,6 +6,7 @@ Permite que a IA acesse diretamente os dados de produtos via function calling
 import logging
 from typing import Any, Dict, List, Optional
 from app.services.supabase_service import SupabaseService
+from app.utils.product_matcher import match_all_keywords
 
 logger = logging.getLogger(__name__)
 
@@ -25,39 +26,6 @@ class ProductMCPServer:
         Formato compatível com OpenAI function calling.
         """
         return [
-            {
-                "type": "function",
-                "function": {
-                    "name": "search_multiple_products",
-                    "description": "🚀 BUSCA OTIMIZADA: Busca múltiplos produtos de uma vez (MUITO MAIS RÁPIDO). Use esta função quando o usuário pedir vários produtos. Exemplo: 'cerveja skol, brahma e coca-cola' → busca os 3 de uma vez.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "products": {
-                                "type": "array",
-                                "description": "Lista de produtos para buscar",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "keywords": {
-                                            "type": "array",
-                                            "items": {"type": "string"},
-                                            "description": "Palavras-chave do produto (ex: ['cerveja', 'skol'])"
-                                        },
-                                        "quantity": {
-                                            "type": "integer",
-                                            "default": 1,
-                                            "description": "Quantidade solicitada"
-                                        }
-                                    },
-                                    "required": ["keywords"]
-                                }
-                            }
-                        },
-                        "required": ["products"]
-                    }
-                }
-            },
             {
                 "type": "function",
                 "function": {
@@ -163,9 +131,19 @@ class ProductMCPServer:
                     logger.warning(f"Produto não encontrado: {keywords}")
                     continue
                 
+                # Filtrar produtos que têm TODAS as keywords
+                filtered_products = []
+                for product in search_result:
+                    if match_all_keywords(product, keywords):
+                        filtered_products.append(product)
+                
+                if not filtered_products:
+                    logger.warning(f"Nenhum produto com TODAS as keywords: {keywords}")
+                    continue
+                
                 # Agrupar por loja
                 stores_with_product = {}
-                for product in search_result:
+                for product in filtered_products:
                     store_name = product.get("store", {}).get("name", "Loja")
                     price = float(product.get("price", 0))
                     
@@ -325,92 +303,6 @@ Envie esta lista diretamente para a loja!"""
                 "error": str(exc)
             }
     
-    def search_multiple_products(self, products: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        Busca múltiplos produtos de uma vez (OTIMIZADO).
-        
-        Args:
-            products: Lista de produtos com keywords e quantity
-            
-        Returns:
-            Dict com produtos mais baratos encontrados para cada query
-        """
-        try:
-            logger.info(f"MCP - search_multiple_products: {len(products)} produtos")
-            
-            # Preparar queries para busca em lote
-            product_queries = []
-            for product in products:
-                keywords = product.get('keywords', [])
-                if keywords:
-                    product_queries.append({'keywords': keywords})
-            
-            if not product_queries:
-                return {
-                    "success": False,
-                    "error": "Nenhuma keyword fornecida",
-                    "products": []
-                }
-            
-            # Buscar TODOS os produtos de uma vez
-            batch_results = self.supabase_service.search_multiple_products_batch(
-                product_queries=product_queries,
-                segment=None
-            )
-            
-            # Processar resultados e encontrar o mais barato de cada
-            found_products = []
-            for i, product_request in enumerate(products):
-                query_key = f"query_{i}"
-                matching_products = batch_results.get(query_key, [])
-                
-                if matching_products:
-                    # Encontrar o mais barato
-                    cheapest = min(matching_products, key=lambda p: float(p.get("price", 999999)))
-                    
-                    # Adicionar unit_label se não existir
-                    if "unit" not in cheapest:
-                        description = cheapest.get("description", "").lower()
-                        if "m³" in description or "m3" in description:
-                            cheapest["unit"] = "m³"
-                        elif "kg" in description:
-                            cheapest["unit"] = "kg"
-                        elif "litro" in description or "l" in description:
-                            cheapest["unit"] = "L"
-                        else:
-                            cheapest["unit"] = "unidade"
-                    
-                    found_products.append({
-                        "name": cheapest.get("name"),
-                        "price": cheapest.get("price"),
-                        "store": cheapest.get("store", {}).get("name", "Loja"),
-                        "unit": cheapest.get("unit", "unidade"),
-                        "quantity": product_request.get("quantity", 1),
-                        "keywords": product_request.get("keywords")
-                    })
-                else:
-                    # Produto não encontrado
-                    keywords_str = " ".join(product_request.get("keywords", []))
-                    logger.warning(f"MCP - Produto não encontrado: {keywords_str}")
-            
-            result = {
-                "success": True,
-                "products": found_products,
-                "total_found": len(found_products),
-                "total_requested": len(products)
-            }
-            
-            logger.info(f"MCP - search_multiple_products: {len(found_products)}/{len(products)} produtos encontrados")
-            return result
-            
-        except Exception as exc:
-            logger.error(f"MCP - Erro em search_multiple_products: {exc}")
-            return {
-                "success": False,
-                "error": str(exc),
-                "products": []
-            }
-    
     def execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """
         Executa uma ferramenta do MCP.
@@ -424,9 +316,7 @@ Envie esta lista diretamente para a loja!"""
         """
         logger.info(f"MCP - Executando ferramenta: {tool_name} com args: {arguments}")
         
-        if tool_name == "search_multiple_products":
-            return self.search_multiple_products(**arguments)
-        elif tool_name == "calculate_best_budget":
+        if tool_name == "calculate_best_budget":
             return self.calculate_best_budget(**arguments)
         elif tool_name == "finalize_purchase":
             return self.finalize_purchase(**arguments)

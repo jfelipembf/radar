@@ -2,9 +2,10 @@
 
 import logging
 import os
+import requests
 from typing import Any, Dict, List, Optional
 
-import requests
+from app.utils.product_matcher import match_all_keywords
 
 logger = logging.getLogger(__name__)
 
@@ -170,13 +171,14 @@ class SupabaseService:
         if not normalized_keywords:
             return []
         
-        # Construir query com operador @> (contains) para busca em array
-        # keywords @> ARRAY['caixa', 'heineken'] retorna produtos que têm TODAS essas palavras
+        # Construir query com operador && (overlap) para busca em array
+        # keywords && ARRAY['caixa', 'heineken'] retorna produtos que têm qualquer uma dessas palavras
+        # O matching exato (todas as keywords) é feito depois no código Python
         keywords_array = "{" + ",".join(normalized_keywords) + "}"
         
         params: Dict[str, Any] = {
             "select": "id,segment,sector,name,description,brand,unit_label,price,updated_at,delivery_info,store_phone,keywords,store:stores(name,phone)",
-            "keywords": f"cs.{keywords_array}",  # cs = contains (todas as keywords)
+            "keywords": f"ov.{keywords_array}",  # ov = overlap (busca ampla, filtro depois)
             "order": "price.asc",
             "limit": str(limit),
         }
@@ -240,14 +242,7 @@ class SupabaseService:
             # Filtrar produtos que correspondem a esta query
             matching_products = []
             for product in all_products:
-                product_keywords = [pk.lower() for pk in product.get('keywords', [])]
-                # Verificar se TODAS as keywords da query estão presentes no produto
-                # Cada keyword da query deve estar contida em pelo menos uma keyword do produto
-                all_keywords_found = all(
-                    any(qk in pk or pk in qk for pk in product_keywords)
-                    for qk in query_keywords
-                )
-                if all_keywords_found:
+                if match_all_keywords(product, query_keywords):
                     matching_products.append(product)
             
             results[query_key] = matching_products

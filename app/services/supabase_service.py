@@ -129,7 +129,7 @@ class SupabaseService:
 
         # Busca simples sem filtros
         params: Dict[str, Any] = {
-            "select": "id,segment,sector,name,description,brand,unit_label,price,updated_at,delivery_info,store_phone,store:stores(name,phone)",
+            "select": "id,segment,sector,name,description,brand,unit_label,price,updated_at,delivery_info,store_phone,keywords,store:stores(name,phone)",
             "order": "price.asc",
             "limit": str(limit),
         }
@@ -175,7 +175,7 @@ class SupabaseService:
         keywords_array = "{" + ",".join(normalized_keywords) + "}"
         
         params: Dict[str, Any] = {
-            "select": "id,segment,sector,name,description,brand,unit_label,price,updated_at,delivery_info,store_phone,store:stores(name,phone)",
+            "select": "id,segment,sector,name,description,brand,unit_label,price,updated_at,delivery_info,store_phone,keywords,store:stores(name,phone)",
             "keywords": f"ov.{keywords_array}",  # ov = overlap operator
             "order": "price.asc",
             "limit": str(limit),

@@ -65,6 +65,12 @@ BASE_BUDGET_INSTRUCTIONS = """
 - NUNCA finalize sem usuário digitar "1"
 - SEMPRE use finalize_purchase quando usuário digitar "1"
 
+🔄 DETECÇÃO DE OPÇÕES:
+- Se usuário digitar APENAS "1", "2", "3" ou "0" → é uma resposta de opção
+- Se usuário digitar texto normal → é uma nova solicitação
+- Exemplos de opções: "1", "2", "3", "0", "1️⃣", "2️⃣", "3️⃣", "0️⃣"
+- Exemplos de nova solicitação: "quero cerveja", "adicionar coca-cola"
+
 🚨 REGRA MAIS IMPORTANTE - NÃO INVENTE DADOS:
 - Use APENAS os dados retornados por calculate_best_budget
 - O resultado tem: result.stores (lista de lojas)

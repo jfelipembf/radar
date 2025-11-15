@@ -7,6 +7,7 @@ import logging
 from typing import Any, Dict, List, Optional
 from app.services.supabase_service import SupabaseService
 from app.utils.product_matcher import match_all_keywords
+from app.utils.purchase_finalizer import PurchaseFinalizer
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,7 @@ class ProductMCPServer:
     
     def __init__(self, supabase_service: SupabaseService):
         self.supabase_service = supabase_service
+        self.purchase_finalizer = PurchaseFinalizer(supabase_service)
     
     def get_tools_schema(self) -> List[Dict[str, Any]]:
         """
@@ -226,82 +228,15 @@ class ProductMCPServer:
         Returns:
             Dict com mensagens e link WhatsApp
         """
-        try:
-            logger.info(f"MCP - finalize_purchase: {store_name}, total: R$ {total}")
-            
-            # Buscar telefone da loja
-            store_phone = None
-            try:
-                # Buscar loja no Supabase
-                stores = self.supabase_service.supabase.table("stores").select("phone").eq("name", store_name).execute()
-                if stores.data and len(stores.data) > 0:
-                    store_phone = stores.data[0].get("phone", "").replace("+", "").replace(" ", "").replace("-", "")
-            except Exception as exc:
-                logger.warning(f"Erro ao buscar telefone da loja: {exc}")
-            
-            # Formatar lista de produtos
-            products_list = []
-            for p in products:
-                name = p.get("name", "Produto")
-                price = p.get("price", 0)
-                unit = p.get("unit", "unidade")
-                quantity = p.get("quantity", 1)
-                
-                if quantity > 1:
-                    products_list.append(f"• {name}: R$ {price:.2f} por {unit} (x{quantity})")
-                else:
-                    products_list.append(f"• {name}: R$ {price:.2f} por {unit}")
-            
-            products_text = "\n".join(products_list)
-            
-            # Mensagem para a LOJA
-            store_message = f"""🛒 *NOVA SOLICITAÇÃO DE ORÇAMENTO*
-
-📞 *Cliente:* {customer_id}
-
-📦 *Produtos solicitados:*
-{products_text}
-
-💰 *Valor total estimado: R$ {total:.2f}*
-
-📱 Cliente será direcionado via WhatsApp."""
-            
-            # Mensagem para o CLIENTE
-            customer_message = f"""✅ Compra finalizada - {store_name}
-
-📦 Produtos selecionados:
-{products_text}
-
-💰 *Valor total: R$ {total:.2f}*
-
-📱 Você será direcionado para o WhatsApp da loja para finalizar a compra.
-Envie esta lista diretamente para a loja!"""
-            
-            # Link WhatsApp
-            whatsapp_link = None
-            if store_phone:
-                import urllib.parse
-                encoded_message = urllib.parse.quote(store_message)
-                whatsapp_link = f"https://wa.me/{store_phone}?text={encoded_message}"
-                customer_message += f"\n\n🔗 {whatsapp_link}"
-            
-            result = {
-                "success": True,
-                "store_message": store_message,
-                "customer_message": customer_message,
-                "whatsapp_link": whatsapp_link,
-                "store_phone": store_phone
-            }
-            
-            logger.info(f"MCP - Compra finalizada com sucesso")
-            return result
-            
-        except Exception as exc:
-            logger.error(f"MCP - Erro em finalize_purchase: {exc}")
-            return {
-                "success": False,
-                "error": str(exc)
-            }
+        logger.info(f"MCP - finalize_purchase: {store_name}, total: R$ {total}")
+        
+        # Delegar para PurchaseFinalizer
+        return self.purchase_finalizer.finalize_purchase(
+            store_name=store_name,
+            customer_id=customer_id,
+            products=products,
+            total=total
+        )
     
     def execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """

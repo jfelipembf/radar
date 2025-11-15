@@ -118,6 +118,54 @@ def format_all_stores_details(budget_data: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def format_option_2_response(budget_data: Dict[str, Any]) -> str:
+    """
+    Formata resposta para opção 2 (detalhes da loja mais barata).
+    
+    Args:
+        budget_data: Resultado de calculate_best_budget
+        
+    Returns:
+        Texto formatado
+    """
+    cheapest = budget_data.get("cheapest_store")
+    if not cheapest:
+        return "❌ Erro: orçamento não encontrado."
+    
+    lines = [format_store_details(cheapest)]
+    lines.append("\n*Escolha uma opção:*")
+    lines.append("1️⃣ Finalizar compra")
+    lines.append("0️⃣ Voltar ao orçamento")
+    
+    return "\n".join(lines)
+
+
+def format_option_3_response(budget_data: Dict[str, Any]) -> str:
+    """
+    Formata resposta para opção 3 (detalhes de todas as lojas).
+    
+    Args:
+        budget_data: Resultado de calculate_best_budget
+        
+    Returns:
+        Texto formatado
+    """
+    return format_all_stores_details(budget_data)
+
+
+def format_option_0_response(budget_data: Dict[str, Any]) -> str:
+    """
+    Formata resposta para opção 0 (voltar ao orçamento).
+    
+    Args:
+        budget_data: Resultado de calculate_best_budget
+        
+    Returns:
+        Texto formatado (mesmo que resumo)
+    """
+    return format_budget_summary(budget_data)
+
+
 def get_budget_instructions() -> str:
     """
     Retorna instruções para a IA sobre como usar o formatador.
@@ -166,5 +214,8 @@ __all__ = [
     "format_budget_summary",
     "format_store_details", 
     "format_all_stores_details",
+    "format_option_2_response",
+    "format_option_3_response",
+    "format_option_0_response",
     "get_budget_instructions"
 ]

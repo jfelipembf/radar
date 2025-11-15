@@ -249,11 +249,11 @@ class BaseChatbotService:
     
     async def _send_whatsapp_message(self, phone: str, text: str):
         """Envia mensagem via WhatsApp."""
-        await self.evolution_service.send_message(phone, text)
+        await asyncio.to_thread(self.evolution_service.send_message, phone, text)
     
     async def _update_presence(self, phone: str, presence: str):
         """Atualiza presença no WhatsApp."""
-        await self.evolution_service.update_presence(phone, presence)
+        await asyncio.to_thread(self.evolution_service.update_presence, phone, presence)
     
     async def _maybe_send_daily_greeting(self, user_id: str):
         """Envia saudação diária se for primeira mensagem do dia."""

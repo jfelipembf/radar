@@ -25,51 +25,19 @@ BASE_BUDGET_INSTRUCTIONS = """
    
    *Escolha uma opção:*
    1️⃣ Finalizar compra na Loja A
-   2️⃣ Ver detalhes da Loja A
-   3️⃣ Ver detalhes de todas as lojas
    
    - PARE e aguarde resposta
 
-2️⃣ SE USUÁRIO DIGITAR "2" (detalhes da melhor):
-   Mostre:
-   🏪 *Loja A* - R$ 150,00:
-   
-   • 1x Caixa Heineken: R$ 62,90
-   • 2x Coca-Cola 2L: R$ 17,00 (R$ 8,50 cada)
-   • 3x Skol Lata: R$ 9,90 (R$ 3,30 cada)
-   
-   💰 *Total:* R$ 150,00
-   
-   *Escolha uma opção:*
-   1️⃣ Finalizar compra
-   0️⃣ Voltar ao orçamento
-
-3️⃣ SE USUÁRIO DIGITAR "3" (detalhes de todas):
-   Mostre produtos de TODAS as lojas no mesmo formato
-   Depois:
-   *Escolha uma opção:*
-   1️⃣ Finalizar compra na Loja A
-   0️⃣ Voltar ao orçamento
-
-4️⃣ SE USUÁRIO DIGITAR "1" (finalizar):
+2️⃣ SE USUÁRIO DIGITAR "1" (finalizar):
    - Use finalize_purchase com dados da loja mais barata
    - Mostre APENAS customer_message
-
-5️⃣ SE USUÁRIO DIGITAR "0" (voltar):
-   - Mostre novamente o resumo do orçamento
 
 ⚠️ REGRAS CRÍTICAS:
 - SEMPRE mostre o resumo primeiro
 - SEMPRE aguarde resposta após resumo
-- SEMPRE mostre as opções corretas
 - NUNCA finalize sem usuário digitar "1"
 - SEMPRE use finalize_purchase quando usuário digitar "1"
-
-🔄 DETECÇÃO DE OPÇÕES:
-- Se usuário digitar APENAS "1", "2", "3" ou "0" → é uma resposta de opção
-- Se usuário digitar texto normal → é uma nova solicitação
-- Exemplos de opções: "1", "2", "3", "0", "1️⃣", "2️⃣", "3️⃣", "0️⃣"
-- Exemplos de nova solicitação: "quero cerveja", "adicionar coca-cola"
+- Se usuário digitar qualquer outra coisa → é uma nova solicitação
 
 🚨 REGRA MAIS IMPORTANTE - NÃO INVENTE DADOS:
 - Use APENAS os dados retornados por calculate_best_budget

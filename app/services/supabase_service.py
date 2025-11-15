@@ -5,8 +5,6 @@ import os
 import requests
 from typing import Any, Dict, List, Optional
 
-from app.utils.product_matcher import match_all_keywords
-
 logger = logging.getLogger(__name__)
 
 
@@ -202,59 +200,6 @@ class SupabaseService:
         logger.info("Supabase → encontrados %d produtos com keywords", len(results))
         return results
     
-    def search_multiple_products_batch(
-        self,
-        product_queries: List[Dict[str, Any]],
-        segment: Optional[str] = None
-    ) -> Dict[str, List[Dict[str, Any]]]:
-        """Busca múltiplos produtos em uma única chamada otimizada.
-        
-        Args:
-            product_queries: Lista de queries, ex: [{'keywords': ['cerveja', 'skol']}, {'keywords': ['coca-cola']}]
-            segment: Segmento opcional
-            
-        Returns:
-            Dict mapeando query -> produtos encontrados
-        """
-        results = {}
-        
-        # Coletar todas as keywords únicas
-        all_keywords = set()
-        for query in product_queries:
-            keywords = query.get('keywords', [])
-            all_keywords.update(k.lower().strip() for k in keywords if k.strip())
-        
-        if not all_keywords:
-            return results
-        
-        # Buscar TODOS os produtos com qualquer keyword de uma vez
-        all_products = self.search_products_by_keywords(
-            keywords=list(all_keywords),
-            segment=segment,
-            limit=200  # Buscar mais para garantir cobertura
-        )
-        
-        # Agrupar produtos por query
-        for i, query in enumerate(product_queries):
-            query_keywords = [k.lower().strip() for k in query.get('keywords', [])]
-            query_key = f"query_{i}"
-            
-            # Filtrar produtos que correspondem a esta query
-            matching_products = []
-            for product in all_products:
-                if match_all_keywords(product, query_keywords):
-                    matching_products.append(product)
-            
-            results[query_key] = matching_products
-        
-        logger.info(
-            "Supabase → busca em lote: %d queries, %d produtos totais",
-            len(product_queries),
-            len(all_products)
-        )
-        
-        return results
-
     def delete_temp_messages(self, message_ids: List[str]) -> None:
         """Remove mensagens temporárias processadas."""
         if not message_ids:

@@ -131,10 +131,12 @@ class ProductMCPServer:
                 }
             
             # 1 QUERY para buscar TODOS os produtos de uma vez
-            logger.info(f"MCP - Buscando todos os produtos com keywords: {all_keywords}")
+            # Limite dinâmico: 50 produtos por item solicitado (escalável)
+            dynamic_limit = max(200, len(products) * 50)
+            logger.info(f"MCP - Buscando todos os produtos com keywords: {all_keywords} (limit: {dynamic_limit})")
             all_products = self.supabase_service.search_products_by_keywords(
                 keywords=all_keywords,
-                limit=200  # Buscar mais para cobrir todas as lojas
+                limit=dynamic_limit
             )
             
             if not all_products:
@@ -148,41 +150,39 @@ class ProductMCPServer:
             
             logger.info(f"MCP - Encontrados {len(all_products)} produtos no total")
             
-            # Agrupar produtos por loja e por produto solicitado
+            # OTIMIZAÇÃO: Agrupar produtos por loja PRIMEIRO (reduz iterações)
+            products_by_store = defaultdict(list)
+            for product in all_products:
+                store_name = product.get("store", {}).get("name", "Loja")
+                products_by_store[store_name].append(product)
+            
+            logger.info(f"MCP - Produtos distribuídos em {len(products_by_store)} lojas")
+            
+            # Calcular orçamento por loja
             all_products_by_store = defaultdict(lambda: {"products": [], "total": 0.0, "has_all": True})
             
             for product_request in products:
                 keywords = product_request.get("keywords", [])
                 quantity = product_request.get("quantity", 1)
                 
-                # Filtrar produtos que correspondem a ESTE produto solicitado
-                filtered_products = []
-                for product in all_products:
-                    if match_all_keywords(product, keywords):
-                        filtered_products.append(product)
-                
-                if not filtered_products:
-                    logger.warning(f"Nenhum produto encontrado para: {keywords}")
-                    continue
-                
-                # Agrupar por loja (mais barato de cada)
-                stores_with_product = {}
-                for product in filtered_products:
-                    store_name = product.get("store", {}).get("name", "Loja")
-                    price = float(product.get("price", 0))
+                # Para cada loja, buscar o produto mais barato
+                for store_name, store_products in products_by_store.items():
+                    # Filtrar produtos desta loja que correspondem às keywords
+                    matching = [p for p in store_products if match_all_keywords(p, keywords)]
                     
-                    # Guardar apenas o mais barato de cada loja
-                    if store_name not in stores_with_product or price < stores_with_product[store_name]["price"]:
-                        stores_with_product[store_name] = {
-                            "name": product.get("name"),
-                            "price": price,
-                            "quantity": quantity
-                        }
-                
-                # Adicionar aos orçamentos por loja
-                for store_name, product_data in stores_with_product.items():
-                    all_products_by_store[store_name]["products"].append(product_data)
-                    all_products_by_store[store_name]["total"] += product_data["price"] * quantity
+                    if not matching:
+                        continue
+                    
+                    # Pegar o mais barato
+                    cheapest = min(matching, key=lambda p: float(p.get("price", 999999)))
+                    
+                    # Adicionar ao orçamento desta loja
+                    all_products_by_store[store_name]["products"].append({
+                        "name": cheapest.get("name"),
+                        "price": float(cheapest.get("price", 0)),
+                        "quantity": quantity
+                    })
+                    all_products_by_store[store_name]["total"] += float(cheapest.get("price", 0)) * quantity
             
             # Filtrar apenas lojas que têm TODOS os produtos
             num_products_requested = len(products)
@@ -211,11 +211,18 @@ class ProductMCPServer:
             # Ordenar por total
             stores_list.sort(key=lambda x: x["total"])
             
+            # Limitar para top 5 lojas (evitar mensagens muito longas)
+            MAX_STORES_TO_SHOW = 5
+            total_stores = len(stores_list)
+            stores_to_show = stores_list[:MAX_STORES_TO_SHOW]
+            
             result = {
                 "success": True,
-                "stores": stores_list,
+                "stores": stores_to_show,
                 "cheapest_store": stores_list[0] if stores_list else None,
-                "total_stores": len(stores_list)
+                "total_stores": total_stores,
+                "showing_top": min(MAX_STORES_TO_SHOW, total_stores),
+                "has_more": total_stores > MAX_STORES_TO_SHOW
             }
             
             logger.info(f"MCP - Encontradas {len(stores_list)} lojas com todos os produtos")

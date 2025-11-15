@@ -20,6 +20,9 @@ BASE_BUDGET_INSTRUCTIONS = """
    🏪 Loja B: R$ 165,00
    🏪 Loja C: R$ 180,00
    
+   Se result.has_more == true, adicione:
+   "... e mais {total_stores - showing_top} lojas disponíveis"
+   
    💰 *Melhor opção:* Loja A
    💵 *Economia:* R$ 15,00
    

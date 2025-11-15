@@ -43,6 +43,12 @@ Marcas comuns:
    - Sempre inclua a especificação nas keywords!
    
    calculate_best_budget busca em TODAS as lojas e retorna orçamento completo
+   
+   ⚠️ LIMITE DE EXIBIÇÃO:
+   - Mostre no máximo 5 lojas
+   - Se houver mais, mostre as 5 mais baratas
+   - Adicione: "... e mais X lojas disponíveis"
+   
    Mostre resultado e PARE
 
 3️⃣ FINALIZAR (quando usuário digitar "1"):

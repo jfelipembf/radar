@@ -5,7 +5,7 @@ from typing import Dict, Any
 
 from fastapi import Request
 
-from app.services.chatbot_service import ChatbotService
+from app.services.chatbot_router import ChatbotRouter
 
 logger = logging.getLogger(__name__)
 
@@ -13,8 +13,8 @@ logger = logging.getLogger(__name__)
 class WebhookHandler:
     """Handler para processar webhooks recebidos."""
 
-    def __init__(self, chatbot_service: ChatbotService):
-        self.chatbot_service = chatbot_service
+    def __init__(self, chatbot_router: ChatbotRouter):
+        self.chatbot_router = chatbot_router
 
     async def handle_webhook(self, request: Request) -> Dict[str, Any]:
         """Processa webhook do WhatsApp."""
@@ -31,8 +31,11 @@ class WebhookHandler:
             if not user_id or not text:
                 return {"status": "ignored"}
 
-            # Processar mensagem
-            result = await self.chatbot_service.process_message(user_id, text, message_data)
+            # Detectar segmento e obter serviço apropriado
+            chatbot_service = self.chatbot_router.get_service(text)
+            
+            # Processar mensagem com serviço especializado
+            result = await chatbot_service.process_message(user_id, text, message_data)
 
             return {"status": result}
 

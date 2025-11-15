@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from app.services.openai_service import OpenAIService
 from app.services.evolution_service import EvolutionService
 from app.services.supabase_service import SupabaseService
-from app.services.chatbot_service import ChatbotService
+from app.services.chatbot_router import ChatbotRouter
 from app.handlers.webhook_handler import WebhookHandler
 
 # Carregar variáveis de ambiente
@@ -41,9 +41,9 @@ try:
 except ValueError:
     logger.warning("Supabase não configurado; mensagens não serão persistidas")
 
-# Inicializar serviços de negócio
-chatbot_service = ChatbotService(openai_service, supabase_service, evolution_service)
-webhook_handler = WebhookHandler(chatbot_service)
+# Inicializar router (detecta segmento e roteia)
+chatbot_router = ChatbotRouter(openai_service, supabase_service, evolution_service)
+webhook_handler = WebhookHandler(chatbot_router)
 
 # Configurar aplicação FastAPI
 app = FastAPI(

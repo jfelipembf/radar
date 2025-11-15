@@ -240,7 +240,7 @@ class SupabaseService:
             # Filtrar produtos que correspondem a esta query
             matching_products = []
             for product in all_products:
-                product_keywords = product.get('keywords', [])
+                product_keywords = [pk.lower() for pk in product.get('keywords', [])]
                 # Verificar se alguma keyword da query está contida em alguma keyword do produto
                 if any(any(qk in pk or pk in qk for pk in product_keywords) for qk in query_keywords):
                     matching_products.append(product)

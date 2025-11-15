@@ -170,13 +170,13 @@ class SupabaseService:
         if not normalized_keywords:
             return []
         
-        # Construir query com operador && (overlap) para busca em array
-        # keywords && ARRAY['cerveja', 'skol'] retorna produtos que têm qualquer uma dessas palavras
+        # Construir query com operador @> (contains) para busca em array
+        # keywords @> ARRAY['caixa', 'heineken'] retorna produtos que têm TODAS essas palavras
         keywords_array = "{" + ",".join(normalized_keywords) + "}"
         
         params: Dict[str, Any] = {
             "select": "id,segment,sector,name,description,brand,unit_label,price,updated_at,delivery_info,store_phone,keywords,store:stores(name,phone)",
-            "keywords": f"ov.{keywords_array}",  # ov = overlap operator
+            "keywords": f"cs.{keywords_array}",  # cs = contains (todas as keywords)
             "order": "price.asc",
             "limit": str(limit),
         }

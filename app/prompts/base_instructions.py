@@ -3,12 +3,15 @@
 BASE_BUDGET_INSTRUCTIONS = """
 📋 FLUXO DE ORÇAMENTO (OBRIGATÓRIO):
 
-1️⃣ BUSCAR PRODUTOS:
-   - Use search_multiple_products com TODOS os produtos
-   - Recebe lista de produtos mais baratos
-
-2️⃣ CALCULAR E MOSTRAR RESUMO:
-   - Use calculate_best_budget(products)
+1️⃣ CALCULAR E MOSTRAR RESUMO (UMA CHAMADA):
+   - Identifique TODOS os produtos da mensagem
+   - Use calculate_best_budget com keywords e quantities
+   - Exemplo: calculate_best_budget([
+       {keywords: ['caixa', 'heineken'], quantity: 1},
+       {keywords: ['coca-cola', '2l'], quantity: 2},
+       {keywords: ['skol'], quantity: 3}
+     ])
+   - Isso busca em TODAS as lojas e retorna orçamento completo
    - Mostre resultado no formato:
    
    📦 *Orçamento Completo:*
@@ -27,7 +30,7 @@ BASE_BUDGET_INSTRUCTIONS = """
    
    - PARE e aguarde resposta
 
-3️⃣ SE USUÁRIO DIGITAR "2" (detalhes da melhor):
+2️⃣ SE USUÁRIO DIGITAR "2" (detalhes da melhor):
    Mostre:
    🏪 *Loja A* - R$ 150,00:
    
@@ -41,18 +44,18 @@ BASE_BUDGET_INSTRUCTIONS = """
    1️⃣ Finalizar compra
    0️⃣ Voltar ao orçamento
 
-4️⃣ SE USUÁRIO DIGITAR "3" (detalhes de todas):
+3️⃣ SE USUÁRIO DIGITAR "3" (detalhes de todas):
    Mostre produtos de TODAS as lojas no mesmo formato
    Depois:
    *Escolha uma opção:*
    1️⃣ Finalizar compra na Loja A
    0️⃣ Voltar ao orçamento
 
-5️⃣ SE USUÁRIO DIGITAR "1" (finalizar):
+4️⃣ SE USUÁRIO DIGITAR "1" (finalizar):
    - Use finalize_purchase com dados da loja mais barata
    - Mostre APENAS customer_message
 
-6️⃣ SE USUÁRIO DIGITAR "0" (voltar):
+5️⃣ SE USUÁRIO DIGITAR "0" (voltar):
    - Mostre novamente o resumo do orçamento
 
 ⚠️ REGRAS CRÍTICAS:

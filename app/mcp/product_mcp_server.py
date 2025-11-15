@@ -62,21 +62,28 @@ class ProductMCPServer:
                 "type": "function",
                 "function": {
                     "name": "calculate_best_budget",
-                    "description": "Calcula o melhor orçamento agrupando produtos por loja e retorna a loja mais barata. Use após adicionar todos os produtos ao orçamento.",
+                    "description": "Calcula o melhor orçamento buscando produtos em TODAS as lojas e comparando totais. Use após identificar os produtos que o usuário quer.",
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "products": {
                                 "type": "array",
-                                "description": "Lista de produtos adicionados ao orçamento",
+                                "description": "Lista de produtos solicitados com keywords e quantity",
                                 "items": {
                                     "type": "object",
                                     "properties": {
-                                        "name": {"type": "string"},
-                                        "price": {"type": "number"},
-                                        "store": {"type": "string"},
-                                        "quantity": {"type": "integer", "default": 1}
-                                    }
+                                        "keywords": {
+                                            "type": "array",
+                                            "items": {"type": "string"},
+                                            "description": "Keywords do produto (ex: ['caixa', 'heineken'])"
+                                        },
+                                        "quantity": {
+                                            "type": "integer",
+                                            "default": 1,
+                                            "description": "Quantidade solicitada"
+                                        }
+                                    },
+                                    "required": ["keywords"]
                                 }
                             }
                         },
@@ -126,44 +133,76 @@ class ProductMCPServer:
     
     def calculate_best_budget(self, products: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
-        Calcula o melhor orçamento agrupando produtos por loja.
+        Calcula o melhor orçamento buscando produtos em TODAS as lojas.
         
         Args:
-            products: Lista de produtos com name, price, store, quantity
+            products: Lista de produtos com keywords e quantity
             
         Returns:
             Dict com orçamento por loja e loja mais barata
         """
         try:
-            logger.info(f"MCP - calculate_best_budget: {len(products)} produtos")
+            logger.info(f"MCP - calculate_best_budget: {len(products)} produtos solicitados")
             
             from collections import defaultdict
             
-            # Agrupar por loja
-            stores = defaultdict(lambda: {"products": [], "total": 0.0})
+            # Buscar cada produto em TODAS as lojas
+            all_products_by_store = defaultdict(lambda: {"products": [], "total": 0.0, "has_all": True})
             
-            for product in products:
-                store_name = product.get("store", "Loja Desconhecida")
-                quantity = product.get("quantity", 1)
-                price = float(product.get("price", 0))
+            for product_request in products:
+                keywords = product_request.get("keywords", [])
+                quantity = product_request.get("quantity", 1)
                 
-                stores[store_name]["products"].append({
-                    "name": product.get("name"),
-                    "price": price,
-                    "quantity": quantity,
-                    "subtotal": price * quantity
-                })
-                stores[store_name]["total"] += price * quantity
+                # Buscar este produto em todas as lojas
+                search_result = self.supabase_service.search_products_by_keywords(
+                    keywords=keywords,
+                    limit=50  # Buscar em várias lojas
+                )
+                
+                if not search_result:
+                    logger.warning(f"Produto não encontrado: {keywords}")
+                    continue
+                
+                # Agrupar por loja
+                stores_with_product = {}
+                for product in search_result:
+                    store_name = product.get("store", {}).get("name", "Loja")
+                    price = float(product.get("price", 0))
+                    
+                    # Guardar apenas o mais barato de cada loja
+                    if store_name not in stores_with_product or price < stores_with_product[store_name]["price"]:
+                        stores_with_product[store_name] = {
+                            "name": product.get("name"),
+                            "price": price,
+                            "quantity": quantity
+                        }
+                
+                # Adicionar aos orçamentos por loja
+                for store_name, product_data in stores_with_product.items():
+                    all_products_by_store[store_name]["products"].append(product_data)
+                    all_products_by_store[store_name]["total"] += product_data["price"] * quantity
             
-            # Converter para lista e ordenar por total
-            stores_list = [
-                {
-                    "store": store_name,
-                    "products": data["products"],
-                    "total": data["total"]
-                }
-                for store_name, data in stores.items()
-            ]
+            # Filtrar apenas lojas que têm TODOS os produtos
+            num_products_requested = len(products)
+            stores_list = []
+            
+            for store_name, data in all_products_by_store.items():
+                if len(data["products"]) == num_products_requested:
+                    stores_list.append({
+                        "store": store_name,
+                        "products": [
+                            {
+                                "name": p["name"],
+                                "price": p["price"],
+                                "quantity": p["quantity"],
+                                "subtotal": p["price"] * p["quantity"]
+                            }
+                            for p in data["products"]
+                        ],
+                        "total": data["total"]
+                    })
+            
+            # Ordenar por total
             stores_list.sort(key=lambda x: x["total"])
             
             result = {
@@ -173,6 +212,7 @@ class ProductMCPServer:
                 "total_stores": len(stores_list)
             }
             
+            logger.info(f"MCP - Encontradas {len(stores_list)} lojas com todos os produtos")
             logger.info(f"MCP - Loja mais barata: {stores_list[0]['store'] if stores_list else 'N/A'}")
             return result
             

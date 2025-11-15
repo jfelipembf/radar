@@ -241,8 +241,13 @@ class SupabaseService:
             matching_products = []
             for product in all_products:
                 product_keywords = [pk.lower() for pk in product.get('keywords', [])]
-                # Verificar se alguma keyword da query está contida em alguma keyword do produto
-                if any(any(qk in pk or pk in qk for pk in product_keywords) for qk in query_keywords):
+                # Verificar se TODAS as keywords da query estão presentes no produto
+                # Cada keyword da query deve estar contida em pelo menos uma keyword do produto
+                all_keywords_found = all(
+                    any(qk in pk or pk in qk for pk in product_keywords)
+                    for qk in query_keywords
+                )
+                if all_keywords_found:
                     matching_products.append(product)
             
             results[query_key] = matching_products

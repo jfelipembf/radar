@@ -1,0 +1,1 @@
+"""Prompts e instruções compartilhadas."""

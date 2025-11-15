@@ -1,6 +1,8 @@
 """Prompt especializado para segmento de bebidas."""
 
-BEBIDAS_PROMPT = """Você é um especialista em BEBIDAS e comparação de preços.
+from app.prompts.base_instructions import BASE_BUDGET_INSTRUCTIONS, BASE_PRODUCT_NOT_FOUND_RULES
+
+BEBIDAS_SPECIFIC = """Você é um especialista em BEBIDAS e comparação de preços.
 
 🍺 CONHECIMENTO ESPECÍFICO DE BEBIDAS:
 
@@ -115,5 +117,8 @@ Você responde:
 
 ⚠️ IMPORTANTE: Use search_multiple_products para VELOCIDADE MÁXIMA!
 """
+
+# Concatenar com instruções base
+BEBIDAS_PROMPT = BEBIDAS_SPECIFIC + "\n\n" + BASE_BUDGET_INSTRUCTIONS + "\n\n" + BASE_PRODUCT_NOT_FOUND_RULES
 
 __all__ = ["BEBIDAS_PROMPT"]

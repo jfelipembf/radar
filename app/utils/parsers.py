@@ -1,6 +1,6 @@
 """Utilitários para parsing e extração de dados."""
 
-from collections import defaultdict
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 
@@ -31,37 +31,28 @@ def _latest_user_content(history: List[Dict[str, Any]]) -> Optional[str]:
     return None
 
 
-def _extract_search_terms(text: Optional[str]) -> List[str]:
-    """Extrai termos de busca do texto (função mantida para compatibilidade)."""
-    if not text:
-        return []
+def _extract_created_at(message_data: dict) -> str:
+    """Extrai timestamp da mensagem."""
+    timestamp = message_data.get('messageTimestamp') or message_data.get('messageTimestamp')
+    if timestamp:
+        try:
+            return datetime.fromtimestamp(int(timestamp), tz=timezone.utc).isoformat()
+        except (ValueError, TypeError):
+            pass
+    return datetime.now(timezone.utc).isoformat()
 
-    normalized = text.strip().lower()
-    if not normalized:
-        return []
 
-    sanitized_text = "".join(ch if ch.isalnum() or ch in {" ", "-", "_"} else " " for ch in normalized)
-    words = [word for word in sanitized_text.split() if len(word) > 2]
-    if not words:
-        return []
-
-    terms: List[str] = []
-    seen = set()
-
-    phrase = " ".join(words)
-    if phrase and phrase not in seen:
-        terms.append(phrase)
-        seen.add(phrase)
-
-    for word in words:
-        if word not in seen:
-            terms.append(word)
-            seen.add(word)
-    return terms[:10]
+def _sort_key(message: dict) -> str:
+    """Chave de ordenação para mensagens."""
+    created_at = message.get("created_at")
+    if isinstance(created_at, str):
+        return created_at
+    return ""
 
 
 __all__ = [
     "_consolidate_temp_messages",
     "_latest_user_content",
-    "_extract_search_terms",
+    "_extract_created_at",
+    "_sort_key",
 ]

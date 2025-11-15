@@ -1,4 +1,4 @@
-"""Aplicação principal FastAPI para o chatbot de materiais de construção."""
+"""Aplicação principal FastAPI para o chatbot de vendas."""
 
 import logging
 import os
@@ -12,7 +12,6 @@ from app.services.evolution_service import EvolutionService
 from app.services.supabase_service import SupabaseService
 from app.services.chatbot_service import ChatbotService
 from app.handlers.webhook_handler import WebhookHandler
-from app.utils.formatters import LOCAL_TIMEZONE
 
 # Carregar variáveis de ambiente
 load_dotenv()
@@ -22,6 +21,7 @@ logging.basicConfig(level=os.getenv('LOG_LEVEL', 'INFO').upper())
 logger = logging.getLogger(__name__)
 
 # Configurar timezone
+LOCAL_TIMEZONE = None
 LOCAL_TIMEZONE_STR = os.getenv("LOCAL_TIMEZONE", "America/Sao_Paulo")
 try:
     LOCAL_TIMEZONE = ZoneInfo(LOCAL_TIMEZONE_STR)
@@ -47,13 +47,10 @@ webhook_handler = WebhookHandler(chatbot_service)
 
 # Configurar aplicação FastAPI
 app = FastAPI(
-    title="Radar - Chatbot de Materiais de Construção",
-    description="API para processamento de mensagens WhatsApp sobre materiais de construção",
+    title="Radar - Chatbot de Vendas",
+    description="API para processamento de mensagens WhatsApp para comparação de preços",
     version="2.0.0"
 )
-
-# Configurações
-DEBOUNCE_SECONDS = int(os.getenv("DEBOUNCE_SECONDS", "15"))
 
 # Rota principal do webhook
 @app.post("/")

@@ -111,94 +111,149 @@ class SupabaseService:
         limit: int = 50,
         exact_filters: Optional[Dict[str, str]] = None,
     ) -> List[Dict[str, Any]]:
-        """Busca produtos cadastrados, opcionalmente filtrando por segmento e termos.
+        """Busca produtos cadastrados usando keywords otimizadas.
         
         Args:
-            segment: Segmento do produto (ex: 'material_construcao')
+            segment: Segmento do produto (opcional, filtra por categoria de negócio)
             search_terms: Termos de busca genéricos
             limit: Limite de resultados
-            exact_filters: Filtros exatos para aplicar (ex: {'capacity': '1000L', 'type': 'CP-II'})
+            exact_filters: Filtros exatos para aplicar (ex: {'brand': 'MarcaX', 'unit_label': 'unidade'})
         """
+        # Se há termos de busca, usar busca otimizada com keywords
+        if search_terms:
+            return self.search_products_by_keywords(
+                keywords=search_terms,
+                segment=segment,
+                limit=limit
+            )
 
+        # Busca simples sem filtros
         params: Dict[str, Any] = {
             "select": "id,segment,sector,name,description,brand,unit_label,price,updated_at,delivery_info,store_phone,store:stores(name,phone)",
-            "order": "name.asc",
+            "order": "price.asc",
             "limit": str(limit),
         }
 
         if segment:
             params["segment"] = f"eq.{segment}"
 
-        # Se há termos de busca, fazer busca sem filtro e filtrar depois
-        if search_terms:
-            # Buscar todos os produtos do segmento e filtrar em Python
-            all_products = self._get_products_by_segment(segment, limit * 3)  # Buscar mais para ter margem
-            filtered_products = []
-
-            for product in all_products:
-                product_name = product.get("name", "").lower()
-                product_desc = product.get("description", "").lower()
-                
-                # Verificar se algum termo de busca está no nome ou descrição
-                matches_search = any(term.lower() in product_name or term.lower() in product_desc for term in search_terms)
-                
-                if matches_search:
-                    # Se há filtros exatos, aplicar
-                    if exact_filters:
-                        matches_filters = True
-                        for filter_key, filter_value in exact_filters.items():
-                            filter_value_lower = filter_value.lower()
-                            # Verificar se o filtro está no nome ou descrição
-                            if filter_value_lower not in product_name and filter_value_lower not in product_desc:
-                                matches_filters = False
-                                break
-                        
-                        if matches_filters:
-                            filtered_products.append(product)
-                    else:
-                        filtered_products.append(product)
-
-            logger.debug(
-                "Supabase → filtrados %d produtos de %d (termos=%s, filtros=%s)",
-                len(filtered_products),
-                len(all_products),
-                search_terms,
-                exact_filters,
-            )
-
-            # Limitar resultado
-            return filtered_products[:limit]
-
         url = f"{self._rest_base}/products"
         logger.debug(
-            "Supabase → buscando produtos (segment=%s search_terms=%s)",
+            "Supabase → buscando produtos (segment=%s)",
             segment,
-            search_terms,
         )
         response = requests.get(url, headers=self._headers, params=params, timeout=10)
         if not response.ok:
             logger.error("Supabase → erro ao buscar produtos: %s", response.text)
             response.raise_for_status()
         return response.json()
-
-    def _get_products_by_segment(self, segment: Optional[str], limit: int) -> List[Dict[str, Any]]:
-        """Busca produtos por segmento (método auxiliar)."""
+    
+    def search_products_by_keywords(
+        self,
+        keywords: List[str],
+        segment: Optional[str] = None,
+        limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        """Busca produtos usando keywords com índice GIN (MUITO RÁPIDO).
+        
+        Args:
+            keywords: Lista de palavras-chave para buscar
+            segment: Segmento opcional para filtrar
+            limit: Limite de resultados
+            
+        Returns:
+            Lista de produtos que contêm qualquer uma das keywords
+        """
+        # Normalizar keywords
+        normalized_keywords = [k.lower().strip() for k in keywords if k.strip()]
+        
+        if not normalized_keywords:
+            return []
+        
+        # Construir query com operador && (overlap) para busca em array
+        # keywords && ARRAY['cerveja', 'skol'] retorna produtos que têm qualquer uma dessas palavras
+        keywords_array = "{" + ",".join(normalized_keywords) + "}"
+        
         params: Dict[str, Any] = {
             "select": "id,segment,sector,name,description,brand,unit_label,price,updated_at,delivery_info,store_phone,store:stores(name,phone)",
-            "order": "name.asc",
+            "keywords": f"ov.{keywords_array}",  # ov = overlap operator
+            "order": "price.asc",
             "limit": str(limit),
         }
-
+        
         if segment:
             params["segment"] = f"eq.{segment}"
-
+        
         url = f"{self._rest_base}/products"
-        logger.debug("Supabase → buscando produtos por segmento: %s", segment)
+        logger.info(
+            "Supabase → busca otimizada com keywords: %s (segment=%s)",
+            normalized_keywords,
+            segment
+        )
+        
         response = requests.get(url, headers=self._headers, params=params, timeout=10)
         if not response.ok:
-            logger.error("Supabase → erro ao buscar produtos por segmento: %s", response.text)
+            logger.error("Supabase → erro na busca por keywords: %s", response.text)
             response.raise_for_status()
-        return response.json()
+        
+        results = response.json()
+        logger.info("Supabase → encontrados %d produtos com keywords", len(results))
+        return results
+    
+    def search_multiple_products_batch(
+        self,
+        product_queries: List[Dict[str, Any]],
+        segment: Optional[str] = None
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Busca múltiplos produtos em uma única chamada otimizada.
+        
+        Args:
+            product_queries: Lista de queries, ex: [{'keywords': ['cerveja', 'skol']}, {'keywords': ['coca-cola']}]
+            segment: Segmento opcional
+            
+        Returns:
+            Dict mapeando query -> produtos encontrados
+        """
+        results = {}
+        
+        # Coletar todas as keywords únicas
+        all_keywords = set()
+        for query in product_queries:
+            keywords = query.get('keywords', [])
+            all_keywords.update(k.lower().strip() for k in keywords if k.strip())
+        
+        if not all_keywords:
+            return results
+        
+        # Buscar TODOS os produtos com qualquer keyword de uma vez
+        all_products = self.search_products_by_keywords(
+            keywords=list(all_keywords),
+            segment=segment,
+            limit=200  # Buscar mais para garantir cobertura
+        )
+        
+        # Agrupar produtos por query
+        for i, query in enumerate(product_queries):
+            query_keywords = [k.lower().strip() for k in query.get('keywords', [])]
+            query_key = f"query_{i}"
+            
+            # Filtrar produtos que correspondem a esta query
+            matching_products = []
+            for product in all_products:
+                product_keywords = product.get('keywords', [])
+                # Verificar se alguma keyword da query está nas keywords do produto
+                if any(qk in product_keywords for qk in query_keywords):
+                    matching_products.append(product)
+            
+            results[query_key] = matching_products
+        
+        logger.info(
+            "Supabase → busca em lote: %d queries, %d produtos totais",
+            len(product_queries),
+            len(all_products)
+        )
+        
+        return results
 
     def delete_temp_messages(self, message_ids: List[str]) -> None:
         """Remove mensagens temporárias processadas."""

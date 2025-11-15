@@ -28,64 +28,33 @@ class ProductMCPServer:
             {
                 "type": "function",
                 "function": {
-                    "name": "search_products",
-                    "description": "Busca produtos no catálogo por categoria e filtros opcionais. Use esta função para encontrar produtos disponíveis.",
+                    "name": "search_multiple_products",
+                    "description": "🚀 BUSCA OTIMIZADA: Busca múltiplos produtos de uma vez (MUITO MAIS RÁPIDO). Use esta função quando o usuário pedir vários produtos. Exemplo: 'cerveja skol, brahma e coca-cola' → busca os 3 de uma vez.",
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "category": {
-                                "type": "string",
-                                "description": "Categoria do produto (ex: 'cimento', 'areia', 'caixa d'água')"
-                            },
-                            "specification": {
-                                "type": "string",
-                                "description": "Especificação opcional (ex: 'CP-II', '1000L', 'lavada')"
-                            },
-                            "limit": {
-                                "type": "integer",
-                                "description": "Número máximo de produtos a retornar",
-                                "default": 10
+                            "products": {
+                                "type": "array",
+                                "description": "Lista de produtos para buscar",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "keywords": {
+                                            "type": "array",
+                                            "items": {"type": "string"},
+                                            "description": "Palavras-chave do produto (ex: ['cerveja', 'skol'])"
+                                        },
+                                        "quantity": {
+                                            "type": "integer",
+                                            "default": 1,
+                                            "description": "Quantidade solicitada"
+                                        }
+                                    },
+                                    "required": ["keywords"]
+                                }
                             }
                         },
-                        "required": ["category"]
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "get_product_variations",
-                    "description": "Obtém as variações disponíveis de uma categoria de produto. Use quando o usuário perguntar 'quais tipos?' ou 'que opções?'",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "category": {
-                                "type": "string",
-                                "description": "Categoria do produto (ex: 'cimento', 'areia')"
-                            }
-                        },
-                        "required": ["category"]
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "get_cheapest_product",
-                    "description": "Retorna o produto mais barato de uma categoria com especificação opcional",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "category": {
-                                "type": "string",
-                                "description": "Categoria do produto"
-                            },
-                            "specification": {
-                                "type": "string",
-                                "description": "Especificação opcional"
-                            }
-                        },
-                        "required": ["category"]
+                        "required": ["products"]
                     }
                 }
             },
@@ -154,198 +123,6 @@ class ProductMCPServer:
                 }
             }
         ]
-    
-    def search_products(
-        self, 
-        category: str, 
-        specification: Optional[str] = None,
-        limit: int = 10
-    ) -> Dict[str, Any]:
-        """
-        Busca produtos no catálogo.
-        
-        Args:
-            category: Categoria do produto
-            specification: Especificação opcional (tipo, capacidade, etc)
-            limit: Limite de resultados
-            
-        Returns:
-            Dict com produtos encontrados e metadados
-        """
-        try:
-            logger.info(f"MCP - search_products: category={category}, spec={specification}")
-            
-            # Preparar filtros
-            search_terms = [category]
-            exact_filters = None
-            
-            if specification:
-                exact_filters = {"specification": specification}
-            
-            # Buscar produtos
-            products = self.supabase_service.get_products(
-                segment="material_construcao",
-                search_terms=search_terms,
-                limit=limit,
-                exact_filters=exact_filters
-            )
-            
-            # Formatar resposta - apenas campos essenciais para economizar tokens
-            result = {
-                "success": True,
-                "category": category,
-                "specification": specification,
-                "count": len(products),
-                "products": [
-                    {
-                        "name": p.get("name"),
-                        "price": p.get("price"),
-                        "store": p.get("store", {}).get("name", "Loja"),
-                        # Descrição limitada a 80 chars para economizar tokens
-                        "description": (p.get("description", "") or "")[:80]
-                    }
-                    for p in products[:limit]  # Garantir limite
-                ]
-            }
-            
-            logger.info(f"MCP - search_products: encontrados {len(products)} produtos, retornando {len(result['products'])}")
-            return result
-            
-        except Exception as exc:
-            logger.error(f"MCP - Erro em search_products: {exc}")
-            return {
-                "success": False,
-                "error": str(exc),
-                "category": category,
-                "products": []
-            }
-    
-    def get_product_variations(self, category: str) -> Dict[str, Any]:
-        """
-        Obtém variações disponíveis de uma categoria.
-        
-        Args:
-            category: Categoria do produto
-            
-        Returns:
-            Dict com variações encontradas
-        """
-        try:
-            logger.info(f"MCP - get_product_variations: category={category}")
-            
-            # Buscar todos os produtos da categoria
-            products = self.supabase_service.get_products(
-                segment="material_construcao",
-                search_terms=[category],
-                limit=50
-            )
-            
-            # Extrair variações únicas dos nomes
-            variations = set()
-            for product in products:
-                name = product.get("name", "").lower()
-                
-                # Padrões comuns de variação
-                patterns = {
-                    "cp-ii": "CP-II",
-                    "cp ii": "CP-II",
-                    "cp-iii": "CP-III",
-                    "cp iii": "CP-III",
-                    "cp-v": "CP-V",
-                    "cp v": "CP-V",
-                    "lavada": "Lavada",
-                    "grossa": "Grossa",
-                    "fina": "Fina",
-                    "1000l": "1000L",
-                    "500l": "500L",
-                    "2000l": "2000L"
-                }
-                
-                for pattern, variation in patterns.items():
-                    if pattern in name:
-                        variations.add(variation)
-            
-            result = {
-                "success": True,
-                "category": category,
-                "variations": sorted(list(variations)),
-                "count": len(variations)
-            }
-            
-            logger.info(f"MCP - get_product_variations: {len(variations)} variações encontradas")
-            return result
-            
-        except Exception as exc:
-            logger.error(f"MCP - Erro em get_product_variations: {exc}")
-            return {
-                "success": False,
-                "error": str(exc),
-                "category": category,
-                "variations": []
-            }
-    
-    def get_cheapest_product(
-        self, 
-        category: str,
-        specification: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """
-        Retorna o produto mais barato de uma categoria.
-        
-        Args:
-            category: Categoria do produto
-            specification: Especificação opcional
-            
-        Returns:
-            Dict com o produto mais barato
-        """
-        try:
-            logger.info(f"MCP - get_cheapest_product: category={category}, spec={specification}")
-            
-            # Buscar produtos
-            search_result = self.search_products(category, specification, limit=50)
-            
-            if not search_result["success"] or not search_result["products"]:
-                return {
-                    "success": False,
-                    "error": "Nenhum produto encontrado",
-                    "category": category
-                }
-            
-            # Encontrar o mais barato
-            products = search_result["products"]
-            cheapest = min(products, key=lambda p: float(p.get("price", 999999)))
-            
-            # Adicionar unit_label se não existir
-            if "unit" not in cheapest:
-                # Tentar extrair do description ou usar padrão
-                description = cheapest.get("description", "").lower()
-                if "m³" in description or "m3" in description:
-                    cheapest["unit"] = "m³"
-                elif "kg" in description:
-                    cheapest["unit"] = "kg"
-                elif "litro" in description or "l" in description:
-                    cheapest["unit"] = "L"
-                else:
-                    cheapest["unit"] = "unidade"
-            
-            result = {
-                "success": True,
-                "category": category,
-                "specification": specification,
-                "product": cheapest
-            }
-            
-            logger.info(f"MCP - get_cheapest_product: {cheapest['name']} - R$ {cheapest['price']}")
-            return result
-            
-        except Exception as exc:
-            logger.error(f"MCP - Erro em get_cheapest_product: {exc}")
-            return {
-                "success": False,
-                "error": str(exc),
-                "category": category
-            }
     
     def calculate_best_budget(self, products: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
@@ -502,6 +279,92 @@ Envie esta lista diretamente para a loja!"""
                 "error": str(exc)
             }
     
+    def search_multiple_products(self, products: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Busca múltiplos produtos de uma vez (OTIMIZADO).
+        
+        Args:
+            products: Lista de produtos com keywords e quantity
+            
+        Returns:
+            Dict com produtos mais baratos encontrados para cada query
+        """
+        try:
+            logger.info(f"MCP - search_multiple_products: {len(products)} produtos")
+            
+            # Preparar queries para busca em lote
+            product_queries = []
+            for product in products:
+                keywords = product.get('keywords', [])
+                if keywords:
+                    product_queries.append({'keywords': keywords})
+            
+            if not product_queries:
+                return {
+                    "success": False,
+                    "error": "Nenhuma keyword fornecida",
+                    "products": []
+                }
+            
+            # Buscar TODOS os produtos de uma vez
+            batch_results = self.supabase_service.search_multiple_products_batch(
+                product_queries=product_queries,
+                segment=None
+            )
+            
+            # Processar resultados e encontrar o mais barato de cada
+            found_products = []
+            for i, product_request in enumerate(products):
+                query_key = f"query_{i}"
+                matching_products = batch_results.get(query_key, [])
+                
+                if matching_products:
+                    # Encontrar o mais barato
+                    cheapest = min(matching_products, key=lambda p: float(p.get("price", 999999)))
+                    
+                    # Adicionar unit_label se não existir
+                    if "unit" not in cheapest:
+                        description = cheapest.get("description", "").lower()
+                        if "m³" in description or "m3" in description:
+                            cheapest["unit"] = "m³"
+                        elif "kg" in description:
+                            cheapest["unit"] = "kg"
+                        elif "litro" in description or "l" in description:
+                            cheapest["unit"] = "L"
+                        else:
+                            cheapest["unit"] = "unidade"
+                    
+                    found_products.append({
+                        "name": cheapest.get("name"),
+                        "price": cheapest.get("price"),
+                        "store": cheapest.get("store", {}).get("name", "Loja"),
+                        "unit": cheapest.get("unit", "unidade"),
+                        "quantity": product_request.get("quantity", 1),
+                        "keywords": product_request.get("keywords")
+                    })
+                else:
+                    # Produto não encontrado
+                    keywords_str = " ".join(product_request.get("keywords", []))
+                    logger.warning(f"MCP - Produto não encontrado: {keywords_str}")
+            
+            result = {
+                "success": True,
+                "products": found_products,
+                "total_found": len(found_products),
+                "total_requested": len(products)
+            }
+            
+            logger.info(f"MCP - search_multiple_products: {len(found_products)}/{len(products)} produtos encontrados")
+            return result
+            
+        except Exception as exc:
+            logger.error(f"MCP - Erro em search_multiple_products: {exc}")
+            return {
+                "success": False,
+                "error": str(exc),
+                "products": []
+            }
+    
     def execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """
         Executa uma ferramenta do MCP.
@@ -515,12 +378,8 @@ Envie esta lista diretamente para a loja!"""
         """
         logger.info(f"MCP - Executando ferramenta: {tool_name} com args: {arguments}")
         
-        if tool_name == "search_products":
-            return self.search_products(**arguments)
-        elif tool_name == "get_product_variations":
-            return self.get_product_variations(**arguments)
-        elif tool_name == "get_cheapest_product":
-            return self.get_cheapest_product(**arguments)
+        if tool_name == "search_multiple_products":
+            return self.search_multiple_products(**arguments)
         elif tool_name == "calculate_best_budget":
             return self.calculate_best_budget(**arguments)
         elif tool_name == "finalize_purchase":

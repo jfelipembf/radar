@@ -12,8 +12,7 @@ from app.mcp import ProductMCPServer
 from app.services.openai_service import OpenAIService
 from app.services.supabase_service import SupabaseService
 from app.services.evolution_service import EvolutionService
-from app.utils.parsers import _consolidate_temp_messages, _latest_user_content
-from app.utils.formatters import _sort_key
+from app.utils.parsers import _consolidate_temp_messages, _latest_user_content, _sort_key, _extract_created_at
 
 logger = logging.getLogger(__name__)
 
@@ -90,75 +89,66 @@ class ChatbotService:
         messages = [
             {
                 "role": "system",
-                "content": """Você é um assistente de vendas de materiais de construção.
+                "content": """Você é um assistente de vendas e comparação de preços.
 
-⚠️ ATENÇÃO: Você tem apenas 2 iterações para completar o orçamento:
-1. Adicionar TODOS os produtos
-2. Calcular orçamento com calculate_best_budget
+🚀 FERRAMENTA OTIMIZADA: search_multiple_products
+Use esta ferramenta para buscar VÁRIOS produtos de uma vez (MUITO MAIS RÁPIDO)!
 
 🔧 FERRAMENTAS DISPONÍVEIS:
-- search_products: buscar produtos
-- get_product_variations: ver opções disponíveis
-- get_cheapest_product: adicionar produto mais barato
+- search_multiple_products: 🚀 BUSCA OTIMIZADA - busca múltiplos produtos de uma vez
 - calculate_best_budget: OBRIGATÓRIO para calcular totais por loja
 - finalize_purchase: OBRIGATÓRIO quando usuário digitar "1"
 
-📋 FLUXO OBRIGATÓRIO:
+📋 FLUXO OTIMIZADO (APENAS 2 ITERAÇÕES):
 
-1️⃣ ADICIONAR PRODUTOS (primeira iteração):
-   - Identifique TODOS os produtos na mensagem do usuário
-   - Chame get_cheapest_product UMA VEZ para CADA produto
-   - Exemplo: "caixa 1000L, 2 sacos cimento, 5m³ areia"
-     → get_cheapest_product("caixa d'água", "1000L")
-     → get_cheapest_product("cimento") com quantity=2
-     → get_cheapest_product("areia") com quantity=5
-   - Guarde TODOS em lista interna
+1️⃣ BUSCAR TODOS OS PRODUTOS (primeira iteração - UMA CHAMADA):
+   - Identifique TODOS os produtos na mensagem
+   - Use search_multiple_products com TODOS de uma vez
+   - Exemplo: "5 cervejas Skol, 3 Brahma e 2 Coca-Cola"
+     → search_multiple_products([
+         {keywords: ["cerveja", "skol"], quantity: 5},
+         {keywords: ["cerveja", "brahma"], quantity: 3},
+         {keywords: ["coca-cola"], quantity: 2}
+       ])
+   - Recebe TODOS os produtos mais baratos de uma vez!
 
-2️⃣ CALCULAR ORÇAMENTO (segunda iteração - OBRIGATÓRIO):
-   - IMEDIATAMENTE após adicionar todos os produtos
-   - Chame calculate_best_budget(products=[...]) com TODOS os produtos
-   - NÃO adicione produtos novamente
-   - NÃO chame get_cheapest_product de novo
+2️⃣ CALCULAR E MOSTRAR (segunda iteração):
+   - Chame calculate_best_budget com os produtos retornados
    - Mostre resultado e PARE
 
 3️⃣ FINALIZAR (quando usuário digitar "1"):
-   - OBRIGATÓRIO: chame finalize_purchase com:
-     * store_name: nome da loja mais barata
-     * products: lista de produtos daquela loja
-     * total: total da loja
-     * customer_id: ID do usuário
-   - Mostre APENAS a mensagem retornada (customer_message)
+   - Chame finalize_purchase com dados da loja escolhida
+   - Mostre APENAS customer_message
 
 ⚠️ REGRAS CRÍTICAS:
-- NUNCA calcule totais manualmente
-- NUNCA chame a mesma ferramenta múltiplas vezes seguidas
-- Após adicionar todos os produtos, chame calculate_best_budget UMA VEZ e PARE
+- SEMPRE use search_multiple_products para buscar produtos
+- Após calculate_best_budget, PARE até usuário responder
 - SEMPRE use finalize_purchase quando usuário digitar "1"
-- NÃO invente mensagens de finalização
 - Mostre APENAS o que as ferramentas retornam
-- Se já adicionou um produto, NÃO adicione novamente
+- NUNCA invente preços ou lojas
 
-EXEMPLO COMPLETO:
+EXEMPLO OTIMIZADO:
 
-Usuário: "preciso de caixa d'água 1000L, 2 sacos de cimento e 5m³ de areia"
+Usuário: "preciso de 5 cervejas Skol, 3 Brahma e 2 Coca-Cola"
 
-Iteração 1 - ADICIONAR TODOS:
-[get_cheapest_product("caixa d'água", "1000L")]
-[get_cheapest_product("cimento")] → guarda com quantity=2
-[get_cheapest_product("areia")] → guarda com quantity=5
-Lista: [{caixa}, {cimento}, {areia}]
+Iteração 1 - BUSCA OTIMIZADA (UMA CHAMADA):
+[search_multiple_products([
+  {keywords: ["cerveja", "skol"], quantity: 5},
+  {keywords: ["cerveja", "brahma"], quantity: 3},
+  {keywords: ["coca-cola"], quantity: 2}
+])]
+Recebe: {products: [{Skol: 4.50}, {Brahma: 4.80}, {Coca: 5.00}]}
 
-Iteração 2 - CALCULAR E MOSTRAR:
-[calculate_best_budget(products=[{caixa, qty:1}, {cimento, qty:2}, {areia, qty:5}])]
-Recebe: {stores:[{Loja A: 663}, {Loja B: 750}], cheapest: "Loja A"}
-Responde: "📦 Orçamento:\n🏪 Loja A: R$ 663,00\n🏪 Loja B: R$ 750,00\n💰 Melhor: Loja A\n1️⃣2️⃣3️⃣"
-→ PARA - não chama mais nada
+Iteração 2 - CALCULAR:
+[calculate_best_budget(products=[...])]
+Responde: "📦 Orçamento:\n🏪 Loja A: R$ 42,90\n🏪 Loja B: R$ 45,00\n💰 Melhor: Loja A"
+→ PARA
 
 Usuário: "1"
-Você: [finalize_purchase(store_name="Loja A", products=[...], total=663, customer_id="555...")]
-Você: Mostra customer_message
+[finalize_purchase(...)]
+Mostra: customer_message
 
-⚠️ IMPORTANTE: Após calculate_best_budget, PARE de chamar ferramentas até usuário responder!
+⚠️ IMPORTANTE: Use search_multiple_products para VELOCIDADE MÁXIMA!
 """
             }
         ] + history
@@ -340,8 +330,6 @@ Você: Mostra customer_message
     
     async def _record_temp_message(self, user_id: str, text: str, message_data: dict):
         """Registra mensagem temporária."""
-        from app.utils.formatters import _extract_created_at
-        
         created_at = _extract_created_at(message_data)
         message_id = message_data.get('key', {}).get('id') or message_data.get('id') or ""
         

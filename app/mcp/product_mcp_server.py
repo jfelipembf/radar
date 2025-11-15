@@ -213,7 +213,9 @@ class ProductMCPServer:
             }
             
             logger.info(f"MCP - Encontradas {len(stores_list)} lojas com todos os produtos")
-            logger.info(f"MCP - Loja mais barata: {stores_list[0]['store'] if stores_list else 'N/A'}")
+            if stores_list:
+                logger.info(f"MCP - Loja mais barata: {stores_list[0]['store']}")
+                logger.info(f"MCP - Resultado completo: {result}")
             return result
             
         except Exception as exc:

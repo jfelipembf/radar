@@ -64,6 +64,31 @@ BASE_BUDGET_INSTRUCTIONS = """
 - SEMPRE mostre as opções corretas
 - NUNCA finalize sem usuário digitar "1"
 - SEMPRE use finalize_purchase quando usuário digitar "1"
+
+🚨 REGRA MAIS IMPORTANTE - NÃO INVENTE DADOS:
+- Use APENAS os dados retornados por calculate_best_budget
+- O resultado tem: result.stores (lista de lojas)
+- Cada loja tem: store (nome), total (preço), products (lista)
+- NUNCA invente nomes de lojas ("Loja B", "Loja C")
+- NUNCA invente preços
+- MOSTRE EXATAMENTE o que a ferramenta retornou
+
+Exemplo de uso correto:
+result = calculate_best_budget(...)
+# result.stores = [
+#   {store: "Adega Premium", total: 89.80, products: [...]},
+#   {store: "Gelada Express", total: 95.00, products: [...]},
+#   {store: "Empório das Bebidas", total: 98.50, products: [...]}
+# ]
+
+Você mostra:
+🏆 *Adega Premium*: R$ 89,80 ⭐
+🏪 Gelada Express: R$ 95,00
+🏪 Empório das Bebidas: R$ 98,50
+
+❌ NUNCA faça:
+🏪 Loja A: R$ 89,80  (inventou nome)
+🏪 Loja B: R$ 95,00  (inventou nome)
 """
 
 BASE_PRODUCT_NOT_FOUND_RULES = """

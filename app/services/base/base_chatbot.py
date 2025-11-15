@@ -236,11 +236,15 @@ class BaseChatbotService:
         if not self.supabase_service:
             return
         
+        payload = {
+            "user_id": user_id,
+            "role": role,
+            "content": content
+        }
+        
         await asyncio.to_thread(
             self.supabase_service.save_message,
-            user_id,
-            role,
-            content
+            payload
         )
     
     async def _send_whatsapp_message(self, phone: str, text: str):

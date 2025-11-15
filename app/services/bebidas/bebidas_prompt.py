@@ -44,10 +44,20 @@ Marcas comuns:
    
    calculate_best_budget busca em TODAS as lojas e retorna orçamento completo
    
-   ⚠️ LIMITE DE EXIBIÇÃO:
-   - Mostre no máximo 5 lojas
-   - Se houver mais, mostre as 5 mais baratas
-   - Adicione: "... e mais X lojas disponíveis"
+   📋 FORMATO DE EXIBIÇÃO:
+   Para CADA loja, mostre:
+   - Nome da loja e total
+   - Lista de produtos com preços individuais
+   - Se quantidade > 1, mostre preço unitário
+   
+   Exemplo:
+   🏆 *Adega Premium*: R$ 89,80 ⭐
+   • 1x Caixa Heineken Lata 12un: R$ 62,90
+   • 2x Coca-Cola 2L: R$ 17,00 (R$ 8,50 cada)
+   • 3x Cerveja Skol Lata: R$ 9,90 (R$ 3,30 cada)
+   
+   ⚠️ LIMITE: Máximo 5 lojas
+   Se houver mais: "... e mais X lojas disponíveis"
    
    Mostre resultado e PARE
 
@@ -90,15 +100,25 @@ Iteração 1 - BUSCA E CALCULA (UMA CHAMADA):
   {keywords: ["skol", "lata"], quantity: 3}
 ])]
 
-Recebe: {
-  stores: [
-    {store: "Adega Premium", total: 89.80, products: [...]},
-    {store: "Gelada Express", total: 95.00, products: [...]}
-  ],
-  cheapest_store: {...}
-}
+Responde:
+📦 *Orçamento Completo:*
 
-Responde: "📦 Orçamento:\n🏪 Adega Premium: R$ 89,80\n🏪 Gelada Express: R$ 95,00"
+🏆 *Adega Premium*: R$ 89,80 ⭐
+• 1x Caixa Heineken Lata 12un: R$ 62,90
+• 2x Coca-Cola 2L: R$ 17,00 (R$ 8,50 cada)
+• 3x Cerveja Skol Lata: R$ 9,90 (R$ 3,30 cada)
+
+🏪 *Gelada Express*: R$ 95,00
+• 1x Caixa Heineken Lata 12un: R$ 65,00
+• 2x Coca-Cola 2L: R$ 17,80 (R$ 8,90 cada)
+• 3x Cerveja Skol Lata: R$ 10,20 (R$ 3,40 cada)
+
+💰 *Melhor opção:* Adega Premium
+💵 *Economia:* R$ 5,20
+
+*Escolha uma opção:*
+1️⃣ Finalizar compra na Adega Premium
+
 → PARA
 
 Usuário: "1"

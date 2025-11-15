@@ -16,9 +16,19 @@ BASE_BUDGET_INSTRUCTIONS = """
    
    📦 *Orçamento Completo:*
    
-   🏆 *Loja A*: R$ 150,00 ⭐
-   🏪 Loja B: R$ 165,00
-   🏪 Loja C: R$ 180,00
+   Para CADA loja em result.stores, mostre:
+   
+   🏆 *Loja A*: R$ 150,00 ⭐ (primeira loja = ⭐)
+   • 1x Produto A: R$ 62,90
+   • 2x Produto B: R$ 17,00 (R$ 8,50 cada)
+   • 3x Produto C: R$ 9,90 (R$ 3,30 cada)
+   
+   🏪 *Loja B*: R$ 165,00
+   • 1x Produto A: R$ 65,00
+   • 2x Produto B: R$ 17,80 (R$ 8,90 cada)
+   • 3x Produto C: R$ 10,20 (R$ 3,40 cada)
+   
+   (repita para cada loja)
    
    Se result.has_more == true, adicione:
    "... e mais {total_stores - showing_top} lojas disponíveis"

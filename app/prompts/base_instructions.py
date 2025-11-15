@@ -43,12 +43,13 @@ BASE_BUDGET_INSTRUCTIONS = """
 
 2️⃣ SE USUÁRIO DIGITAR "1" (finalizar):
    - Use finalize_purchase com dados de result.cheapest_store
+   - ⚠️ IMPORTANTE: customer_id DEVE ser o telefone do usuário (ex: "557999371622")
    - Exemplo:
      finalize_purchase(
        store_name=result.cheapest_store.store,
        products=result.cheapest_store.products,
        total=result.cheapest_store.total,
-       customer_id=user_phone
+       customer_id="557999371622"  // Telefone real do usuário
      )
    - Mostre APENAS customer_message
 

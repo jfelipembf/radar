@@ -86,7 +86,7 @@ class BaseChatbotService:
         messages = [
             {
                 "role": "system",
-                "content": self.system_prompt  # Prompt específico da subclasse
+                "content": f"{self.system_prompt}\n\n⚠️ INFORMAÇÃO DO CLIENTE:\nTelefone do cliente: {user_id}\nUSE ESTE TELEFONE como customer_id ao chamar finalize_purchase!"
             }
         ] + history
         

@@ -31,11 +31,24 @@ class PurchaseFinalizer:
             Telefone formatado ou None
         """
         try:
-            stores = self.supabase_service.supabase.table("stores").select("phone").eq("name", store_name).execute()
-            if stores.data and len(stores.data) > 0:
-                phone = stores.data[0].get("phone", "")
-                # Limpar formatação
-                return phone.replace("+", "").replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+            import requests
+            
+            url = f"{self.supabase_service._rest_base}/stores"
+            params = {
+                "select": "phone",
+                "name": f"eq.{store_name}",
+                "limit": "1"
+            }
+            
+            response = requests.get(url, headers=self.supabase_service._headers, params=params, timeout=10)
+            
+            if response.ok and response.json():
+                stores = response.json()
+                if stores and len(stores) > 0:
+                    phone = stores[0].get("phone", "")
+                    # Limpar formatação
+                    return phone.replace("+", "").replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+            
             return None
         except Exception as exc:
             logger.warning(f"Erro ao buscar telefone da loja {store_name}: {exc}")

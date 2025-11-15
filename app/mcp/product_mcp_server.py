@@ -188,7 +188,7 @@ class ProductMCPServer:
             
             for store_name, data in all_products_by_store.items():
                 if len(data["products"]) == num_products_requested:
-                    stores_list.append({
+                    store_data = {
                         "store": store_name,
                         "products": [
                             {
@@ -200,7 +200,11 @@ class ProductMCPServer:
                             for p in data["products"]
                         ],
                         "total": data["total"]
-                    })
+                    }
+                    logger.info(f"MCP - Loja {store_name}: Total R$ {data['total']:.2f}")
+                    for p in data["products"]:
+                        logger.info(f"  - {p['quantity']}x {p['name']}: R$ {p['price']:.2f} = R$ {p['price'] * p['quantity']:.2f}")
+                    stores_list.append(store_data)
             
             # Ordenar por total
             stores_list.sort(key=lambda x: x["total"])

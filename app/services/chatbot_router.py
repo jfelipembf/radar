@@ -25,7 +25,9 @@ class ChatbotRouter:
             'cimento', 'areia', 'tijolo', 'telha', 'caixa dagua', 'caixa d\'água',
             'argamassa', 'cal', 'brita', 'ferro', 'vergalhao', 'vergalhão',
             'saco', 'metro cubico', 'metro cúbico', 'm3', 'm³', 'milheiro',
-            'construcao', 'construção', 'obra', 'material', 'pedra'
+            'construcao', 'construção', 'obra', 'material', 'pedra', 'bloco',
+            'piso', 'ceramica', 'cerâmica', 'porta', 'janela', 'tinta',
+            'massa', 'gesso', 'tubo', 'cano', 'registro', 'torneira'
         ]
     }
     

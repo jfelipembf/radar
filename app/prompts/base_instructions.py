@@ -1,6 +1,12 @@
 """Instruções base compartilhadas por todos os segmentos."""
 
 BASE_BUDGET_INSTRUCTIONS = """
+🚨 REGRA FUNDAMENTAL - SEMPRE USE FERRAMENTAS:
+- NUNCA responda sobre preços sem usar calculate_best_budget
+- NUNCA invente ou estime preços
+- SEMPRE busque dados reais usando as ferramentas
+- Perguntas como "onde está mais barato?" = use calculate_best_budget
+
 📋 FLUXO DE ORÇAMENTO (OBRIGATÓRIO):
 
 1️⃣ CALCULAR E MOSTRAR RESUMO (UMA CHAMADA):
@@ -84,6 +90,20 @@ Você mostra:
 ❌ NUNCA faça:
 🏪 Loja A: R$ 89,80  (inventou nome)
 🏪 Loja B: R$ 95,00  (inventou nome)
+
+📝 EXEMPLOS DE PERGUNTAS E RESPOSTAS CORRETAS:
+
+Pergunta: "onde o cimento está mais barato?"
+✅ CORRETO: Chamar calculate_best_budget([{keywords: ['cimento'], quantity: 1}])
+❌ ERRADO: Responder direto sem usar ferramenta
+
+Pergunta: "qual o preço da areia?"
+✅ CORRETO: Chamar calculate_best_budget([{keywords: ['areia'], quantity: 1}])
+❌ ERRADO: Responder direto sem usar ferramenta
+
+Pergunta: "onde posso encontrar cerveja mais barata?"
+✅ CORRETO: Chamar calculate_best_budget([{keywords: ['cerveja'], quantity: 1}])
+❌ ERRADO: Responder direto sem usar ferramenta
 """
 
 BASE_PRODUCT_NOT_FOUND_RULES = """

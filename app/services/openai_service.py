@@ -52,6 +52,17 @@ class OpenAIService:
                 **kwargs
             )
             
+            # Log de uso de tokens
+            if hasattr(response, 'usage') and response.usage:
+                usage = response.usage
+                logger.info(
+                    f"📊 Token Usage: "
+                    f"prompt={usage.prompt_tokens}, "
+                    f"completion={usage.completion_tokens}, "
+                    f"total={usage.total_tokens}, "
+                    f"model={self._model}"
+                )
+            
             logger.debug("OpenAI response with tools: %s", response.choices[0].message)
             return response
             
